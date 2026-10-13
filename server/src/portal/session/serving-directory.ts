@@ -8,10 +8,13 @@
  * which `memory/project` has no business knowing. The resolver takes the answer as an injected
  * function; the composition roots pass this one.
  */
-import { type DevServerEntry, isLoopbackHostname } from '@reticlehq/core';
+import { type Checkout, type DevServerEntry, isLoopbackHostname } from '@reticlehq/core';
 import { captureLookup, findListenerCwd } from '@/command/cli/ports/port-holder.js';
 import { reticleStateHome } from '@/command/daemon/daemon.js';
 import { readDevServers } from '@/command/daemon/dev-servers.js';
+import { checkoutAt, hasLinkedWorktrees } from '@/command/cli/config/checkout.js';
+import { callingClientDirectory } from '@/hooks/client-directory.js';
+import { originOf, type CheckoutSource } from './session-manager.js';
 
 /** Where `servingDirectoryOf` gets its two observations. Injected so a test needs no processes. */
 export interface ServingDirectoryIo {
@@ -52,4 +55,33 @@ export function servingDirectoryOf(
   const announced = io.devServers().find((entry) => entry.port === port);
   if (announced !== undefined) return announced.root;
   return io.listenerCwd(port) ?? undefined;
+}
+
+/**
+ * The live answers for a worktree-scoped resolve: the calling agent's checkout (from the directory
+ * its MCP proxy runs in) and each tab's checkout (from the dev server that served it).
+ */
+/** How long one origin's serving checkout is trusted. A dev server can restart in another worktree. */
+const SERVING_TTL_MS = 30_000;
+
+export function liveCheckoutSource(now: () => number = Date.now): CheckoutSource {
+  const cache = new Map<string, { at: number; checkout: Checkout | undefined }>();
+  return {
+    caller: () => {
+      const dir = callingClientDirectory();
+      const checkout = dir === undefined ? undefined : checkoutAt(dir);
+      // A repository with no linked worktree has nothing to tell apart: skip the serving lookups.
+      return checkout !== undefined && hasLinkedWorktrees(checkout.mainRoot) ? checkout : undefined;
+    },
+    ofUrl: (url) => {
+      const origin = originOf(url);
+      if (origin === undefined) return undefined;
+      const hit = cache.get(origin);
+      if (hit !== undefined && now() - hit.at < SERVING_TTL_MS) return hit.checkout;
+      const serving = servingDirectoryOf(origin);
+      const checkout = serving === undefined ? undefined : checkoutAt(serving);
+      cache.set(origin, { at: now(), checkout });
+      return checkout;
+    },
+  };
 }

@@ -78,6 +78,7 @@ export * from './verdict/predicate-tree.js';
 // The version 1 reader: a flat expect lifted to the predicate a v2 file stores directly.
 export * from './artifacts/flow-expect-flat.js';
 export * from './identity/project-id.js';
+export * from './identity/checkout.js';
 export * from './words/notices.js';
 export * from './artifacts/journal.js';
 // Not an API — three names that exist so importing the BROWSER SDK from here fails with a sentence

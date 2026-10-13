@@ -309,3 +309,43 @@ describe('an unscoped call across two projects refuses instead of guessing', () 
     expect(bridge.sessions.resolve('b').id).toBe('b');
   });
 });
+
+/**
+ * Two agents in two worktrees of one app. Every worktree declares the same projectId, so the project
+ * scope alone let agent A's id-less click land on worktree B's tab — a real side effect in another
+ * agent's app, reported from the field.
+ */
+describe('worktree-scoped resolve()', () => {
+  const MAIN = { root: '/repo', mainRoot: '/repo', branch: 'main', linked: false };
+  const WT_A = { root: '/wt/a', mainRoot: '/repo', branch: 'feat/a', linked: true };
+  const WT_B = { root: '/wt/b', mainRoot: '/repo', branch: 'feat/b', linked: true };
+  const servedBy: Record<string, typeof MAIN> = {
+    'http://localhost:5173/': MAIN,
+    'http://localhost:5174/': WT_A,
+    'http://localhost:5175/': WT_B,
+  };
+
+  it('resolves to the tab served from the calling agent’s worktree', async () => {
+    let caller = WT_A;
+    bridge.sessions.setCheckoutScope({ caller: () => caller, ofUrl: (url) => servedBy[url] });
+    // B is fresher, so freshness alone would pick it.
+    await connect({ sessionId: 'tab-a', url: 'http://localhost:5174/', projectId: 'app' });
+    await connect({ sessionId: 'tab-b', url: 'http://localhost:5175/', projectId: 'app' });
+    await waitForSessions(2);
+
+    expect(bridge.sessions.resolve(undefined, { projectId: 'app' }).id).toBe('tab-a');
+    caller = WT_B;
+    expect(bridge.sessions.resolve(undefined, { projectId: 'app' }).id).toBe('tab-b');
+  });
+
+  it('refuses another worktree’s only tab, and an explicit sessionId still reaches it', async () => {
+    bridge.sessions.setCheckoutScope({ caller: () => WT_A, ofUrl: (url) => servedBy[url] });
+    await connect({ sessionId: 'tab-b', url: 'http://localhost:5175/', projectId: 'app' });
+    await waitForSessions(1);
+
+    expect(() => bridge.sessions.resolve(undefined, { projectId: 'app' })).toThrow(
+      /another worktree/,
+    );
+    expect(bridge.sessions.resolve('tab-b').id).toBe('tab-b');
+  });
+});

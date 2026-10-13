@@ -11,7 +11,7 @@ import { attachCloudSync } from './memory/cloud/sync-daemon.js';
 import { wireHooks } from './hooks/hook-commands.js';
 import { currentDrivenBy } from './hooks/driven-by.js';
 import { artifactRootResolver } from './memory/project/artifact-root-resolver.js';
-import { servingDirectoryOf } from './portal/session/serving-directory.js';
+import { liveCheckoutSource, servingDirectoryOf } from './portal/session/serving-directory.js';
 import type { Server } from 'node:http';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -216,6 +216,8 @@ export async function start(options: StartOptions = {}): Promise<RunningServer> 
   if (activeProjectId !== undefined) {
     bridge.sessions.setDefaultScope({ projectId: activeProjectId });
   }
+  // Then to the agent's own git worktree: every worktree declares the same projectId.
+  bridge.sessions.setCheckoutScope(liveCheckoutSource());
   const baselines = new BaselineStore();
   const recordings = new RecordingStore(() => currentDrivenBy() !== undefined);
   // drive precedence: driveUrl (launch+own a browser) → CDP (attach) → none.

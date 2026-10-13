@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { basename, join } from 'node:path';
+import { basename, join, sep } from 'node:path';
 import { asProjectId, ReticleDir } from '@reticlehq/core';
 import { emptyProjectRegistry, rememberProject } from '@reticlehq/core/artifacts';
 import {
   ArtifactRootReason,
   UNMATCHED_SUBDIR,
   projectCandidatesFrom,
+  rebaseIntoCheckout,
   resolveArtifactRoot,
   unmatchedRoot,
 } from './artifact-root.js';
@@ -530,5 +531,29 @@ describe('an unnameable project does not share a bucket with every other one', (
       origin: 'http://localhost:3000',
     });
     expect(basename(root)).toBe('abc123');
+  });
+});
+
+describe('rebaseIntoCheckout', () => {
+  const main = { root: join(sep, 'repo'), mainRoot: join(sep, 'repo'), linked: false };
+  const wt = { root: join(sep, 'wt', 'x'), mainRoot: join(sep, 'repo'), linked: true };
+  const app = join(sep, 'repo', 'apps', 'web');
+
+  it('moves a project folder from the main checkout into the worktree that served the page', () => {
+    expect(rebaseIntoCheckout(app, main, wt)).toBe(join(sep, 'wt', 'x', 'apps', 'web'));
+  });
+
+  it('keeps the folder when the page came from the same checkout', () => {
+    expect(rebaseIntoCheckout(app, main, main)).toBe(app);
+  });
+
+  it('keeps the folder when the two checkouts are different repositories', () => {
+    const other = { root: join(sep, 'b'), mainRoot: join(sep, 'b'), linked: false };
+    expect(rebaseIntoCheckout(app, main, other)).toBe(app);
+  });
+
+  it('keeps the folder when either checkout is unknown', () => {
+    expect(rebaseIntoCheckout(app, undefined, wt)).toBe(app);
+    expect(rebaseIntoCheckout(app, main, undefined)).toBe(app);
   });
 });

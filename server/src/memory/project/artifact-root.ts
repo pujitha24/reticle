@@ -5,6 +5,7 @@ import {
   ReticleDir,
   fnv1a,
   projectCandidates,
+  type Checkout,
   type ProjectCandidate,
   type ProjectId,
   type ProjectRegistry,
@@ -118,6 +119,26 @@ export function resolveArtifactRoot(query: ArtifactRootQuery): ArtifactRoot {
   }
 
   return { root: join(directory, ReticleDir.ROOT), reason: ArtifactRootReason.MATCHED_PROJECT };
+}
+
+/**
+ * The same project folder, in the checkout that served the page.
+ *
+ * Every git worktree of a project is the same project, so the config the daemon found names the
+ * main checkout's folder. A page served from worktree `x` belongs in `x`'s copy of that folder, so
+ * its flows and runs travel with `x`'s branch. Unchanged unless both checkouts are known, share one
+ * main checkout, and differ.
+ */
+export function rebaseIntoCheckout(
+  directory: string,
+  from: Pick<Checkout, 'root' | 'mainRoot'> | undefined,
+  to: Pick<Checkout, 'root' | 'mainRoot'> | undefined,
+): string {
+  if (from === undefined || to === undefined) return directory;
+  if (from.mainRoot !== to.mainRoot || from.root === to.root) return directory;
+  const rel = relative(from.root, directory);
+  if ('..' === rel || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return directory;
+  return join(to.root, rel);
 }
 
 /**

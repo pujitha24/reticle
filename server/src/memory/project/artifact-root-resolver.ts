@@ -28,6 +28,7 @@ import {
 } from '@reticlehq/core/artifacts';
 import {
   DevServerEntrySchema,
+  type Checkout,
   type ProjectId,
   ReticleDir,
   ReticleEnv,
@@ -39,9 +40,11 @@ import {
   type ConfigDiscovery,
 } from '@/command/cli/config/config-discovery.js';
 import { log } from '@/log.js';
+import { checkoutAt, hasLinkedWorktrees } from '@/command/cli/config/checkout.js';
 import {
   ArtifactRootReason,
   projectCandidatesFrom,
+  rebaseIntoCheckout,
   resolveArtifactRoot,
   unmatchedRoot,
   type ArtifactRoot,
@@ -196,6 +199,10 @@ export interface ArtifactRootResolverDeps {
    * would silently keep sending every worktree's artifacts to the primary checkout.
    */
   servingDirectory: (origin: string) => string | undefined;
+  /** The git checkout a directory is in. Defaults to reading `.git` on disk. */
+  checkout?: (dir: string) => Checkout | undefined;
+  /** Whether a repository has linked worktrees. Defaults to one directory read. */
+  hasWorktrees?: (mainRoot: string) => boolean;
 }
 
 export function artifactRootResolver(
@@ -221,6 +228,20 @@ export function artifactRootResolver(
     if (!servedFrom.has(origin)) servedFrom.set(origin, servingDirectory(origin));
     return servedFrom.get(origin);
   };
+  const checkout = deps.checkout ?? checkoutAt;
+  const hasWorktrees = deps.hasWorktrees ?? hasLinkedWorktrees;
+  // Every worktree of a project declares the same id, and discovery usually knows only the main
+  // checkout. The page's own checkout decides, so a worktree's flows and runs stay on its branch.
+  // Only a repository that HAS worktrees pays for the serving lookup, which can shell out.
+  const intoServingWorktree = (resolved: ArtifactRoot, origin: string): ArtifactRoot => {
+    const project = dirname(resolved.root);
+    const from = checkout(project);
+    if (from === undefined || !hasWorktrees(from.mainRoot)) return resolved;
+    const serving = servingOf(origin);
+    const to = serving === undefined ? undefined : checkout(serving);
+    const moved = rebaseIntoCheckout(project, from, to);
+    return moved === project ? resolved : { ...resolved, root: join(moved, ReticleDir.ROOT) };
+  };
   return (projectId, origin) => {
     const known = candidates();
     let resolved = resolveArtifactRoot({ projectId, candidates: known, daemonRoot });
@@ -235,7 +256,8 @@ export function artifactRootResolver(
         servingDirectory: servingOf(origin),
       });
     }
-    if (resolved.reason === ArtifactRootReason.MATCHED_PROJECT) return resolved;
+    if (resolved.reason === ArtifactRootReason.MATCHED_PROJECT)
+      return origin === undefined ? resolved : intoServingWorktree(resolved, origin);
     // Could not name the project. The old code wrote into the daemon's directory anyway and said
     // nothing, which put `.reticle/` — journals included — into repositories nobody had
     // instrumented. Evidence still has to live somewhere, so it goes to the user's own

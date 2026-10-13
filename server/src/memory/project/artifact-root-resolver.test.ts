@@ -217,6 +217,45 @@ describe('a project two checkouts declare, served from one of them', () => {
 });
 
 /**
+ * The worktree that `init` never ran in. Discovery and the registry know only the main checkout, so
+ * one candidate matches and the old answer was the main checkout. Agents' feedback: intent, flows
+ * and runs from the worktree landed in the primary clone, and `gate` in the worktree saw nothing.
+ */
+describe('a project one checkout declares, served from a linked worktree', () => {
+  const ORIGIN = 'http://localhost:5175';
+  const WT = join(sep, 'wt', 'feat-x');
+  const checkouts = (dir: string) =>
+    dir.startsWith(WT)
+      ? { root: WT, mainRoot: MAIN, branch: 'feat/x', linked: true }
+      : { root: MAIN, mainRoot: MAIN, linked: false };
+
+  it('writes into the worktree that served the page', () => {
+    const resolved = artifactRootResolver(join(MAIN, ReticleDir.ROOT), {
+      candidates: onlyMain,
+      daemonIsProject: () => true,
+      servingDirectory: () => WT,
+      checkout: checkouts,
+      hasWorktrees: () => true,
+    })(asProjectId(MAIN_ID), ORIGIN);
+
+    expect(resolved.reason).toBe(ArtifactRootReason.MATCHED_PROJECT);
+    expect(resolved.root).toBe(join(WT, ReticleDir.ROOT));
+  });
+
+  it('keeps the main checkout when the page came from it', () => {
+    const resolved = artifactRootResolver(join(MAIN, ReticleDir.ROOT), {
+      candidates: onlyMain,
+      daemonIsProject: () => true,
+      servingDirectory: () => MAIN,
+      checkout: checkouts,
+      hasWorktrees: () => true,
+    })(asProjectId(MAIN_ID), ORIGIN);
+
+    expect(resolved.root).toBe(join(MAIN, ReticleDir.ROOT));
+  });
+});
+
+/**
  * Sync reads this list. It used to keep its own without the announced dev servers, so the merchant
  * dashboard's runs were written to its `.reticle/runs/` and never sent: 52 sync cycles in one drive
  * pushed other directories' impact and not one of that app's runs.
