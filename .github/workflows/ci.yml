@@ -991,6 +991,10 @@ jobs:
         run: pnpm gate:multi:self-test
       - name: Multi-agent simulation (4 projects, real daemons, real kills)
         run: pnpm gate:multi
+      # Two agents in two git worktrees of one app. Each id-less call must reach only its own
+      # worktree's tab, and an agent with no tab of its own must be refused, not redirected.
+      - name: Worktrees (two agents, two worktrees, one daemon)
+        run: pnpm gate:worktrees
 
   e2e:
     runs-on: ubuntu-latest

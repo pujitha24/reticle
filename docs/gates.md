@@ -67,6 +67,7 @@ Find the row that matches what you changed. Run its commands. That is the whole 
 | `reticle init`, `@reticlehq/vite-plugin`, `@reticlehq/next`, `@reticlehq/babel-plugin`, anything a user runs before their first session | ↑ **and** `pnpm gate:install` | +~15 min |
 | `@reticlehq/electron`, `adapters/realm/tauri`, the IPC observer, desktop capture | ↑ **and** `pnpm test:e2e:desktop` | +~3 min |
 | `open-verification`, the adjudicator, `WebRealm`, or anything a verdict is derived from | ↑ **and** `pnpm gate:conformance` | +~3 min |
+| Session selection, the artifact root, or anything that tells git worktrees apart | ↑ **and** `pnpm gate:worktrees` | +~20s |
 | Telemetry, feedback, or anything that emits an event | ↑ **and** read [`telemetry-contract.md`](./telemetry-contract.md) first. `pnpm test:e2e` covers it (`telemetry-events-test`) | n/a |
 | `adapters/realm/tauri` (Rust) | ↑ **and** `cd adapters/realm/tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings` | +~2 min |
 | Docs, README, comments only | `pnpm format:check` | seconds |

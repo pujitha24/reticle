@@ -57,6 +57,8 @@ pnpm gate:install                               #    ~15 min, and the only thing
                                                 #    user runs BEFORE their first session
 pnpm gate:install-sandbox                       #    ~10 min, Docker: the published curl|sh installer on clean
                                                 #    Linux machines (full, slim, Alpine, too-old Node, no Node, with a browser)
+pnpm gate:worktrees                             #    ~20s: two agents in two git worktrees of one app each
+                                                #    reach only their own tab, through the real daemon
 pnpm lint:docs                                  #    every documented command still parses; see below
 claude plugin validate ./plugin                 #    the published Claude Code plugin still resolves
 npx skills add reticlehq/reticle -l             #    the published skills are all still discoverable

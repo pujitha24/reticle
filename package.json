@@ -45,6 +45,7 @@
     "gate:install-sandbox": "node apps/e2e/install-sandbox.mjs",
     "gate:install:self-test": "node apps/e2e/install-gate.mjs --self-test",
     "gate:multi": "node apps/e2e/multi/multi-agent-sim.mjs",
+    "gate:worktrees": "node apps/e2e/worktrees/worktrees-gate.mjs",
     "gate:multi:self-test": "node apps/e2e/multi/multi-agent-sim.mjs --self-test",
     "gate:soak": "node apps/e2e/soak.mjs",
     "gate:soak:self-check": "node apps/e2e/soak.mjs --self-check",

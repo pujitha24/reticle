@@ -379,6 +379,8 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
     sdkFix: sdkFixForProject,
     ...security,
   });
+  // The daemon serves every agent on the machine: scope id-less calls to the calling agent's worktree.
+  bridge.sessions.setCheckoutScope(liveCheckoutSource());
   const repaint = (only?: string, ifChanged = false): void => {
     for (const session of bridge.sessions.all()) {
       const root =
