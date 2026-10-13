@@ -10,8 +10,8 @@
  * user-level credential. "Cloud attached" = a valid link file AND a key for its project id (or env creds).
  */
 import { join } from 'node:path';
-import { DEFAULT_PLATFORM_URL, ReticleDir, ReticleEnv } from '@reticlehq/core';
-import type { FileSystemPort } from '@/memory/project/fs/fs-port.js';
+import { DEFAULT_PLATFORM_URL, ReticleDir, ReticleEnv, mainCheckoutTwin } from '@reticlehq/core';
+import { readTextOrUndefined, type FileSystemPort } from '@/memory/project/fs/fs-port.js';
 import { resolveCloudConfig, type CloudConfig } from './cloud-sync.js';
 
 /** `<reticleRoot>/cloud.json` — the project's cloud binding + sync policy (non-secret). */
@@ -186,6 +186,18 @@ function credentialFor(
 const normalizeCloudUrl = (url: string): string => url.replace(/\/+$/, '');
 
 /**
+ * A linked worktree's link, read from its main checkout. `.reticle/` is often git-ignored, so a new
+ * worktree has no `cloud.json`, and `reticle connect` once in the main checkout must cover it.
+ */
+async function linkOfMainCheckout(
+  fs: FileSystemPort,
+  reticleRoot: string,
+): Promise<ReturnType<typeof parseLink>> {
+  const twin = mainCheckoutTwin(reticleRoot, readTextOrUndefined);
+  return twin === undefined ? null : parseLink(await readJson(fs, join(twin, CLOUD_LINK_FILE)));
+}
+
+/**
  * Resolve the cloud picture for a project rooted at `reticleRoot`. Reads the project's link file + the
  * user credential store, else the env key; if the project isn't linked (no cloud.json), the env creds
  * are the whole story (the single-project / CI flow). `homeDir` is injected (testable; `os.homedir()` at call).
@@ -196,7 +208,9 @@ export async function resolveProjectCloud(
   homeDir: string,
   env: NodeJS.ProcessEnv,
 ): Promise<ProjectCloud> {
-  const link = parseLink(await readJson(fs, join(reticleRoot, CLOUD_LINK_FILE)));
+  const link =
+    parseLink(await readJson(fs, join(reticleRoot, CLOUD_LINK_FILE))) ??
+    (await linkOfMainCheckout(fs, reticleRoot));
   if (null === link) {
     // No per-project link → the env vars are the whole story (legacy single-project / CI behaviour).
     const config = resolveCloudConfig(env);

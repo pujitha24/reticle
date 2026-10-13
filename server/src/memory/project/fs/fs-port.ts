@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import {
   access,
   appendFile,
@@ -195,4 +196,16 @@ export function createNodeFileSystem(): FileSystemPort {
     realpath: (path) => realpath(path),
     isNotFound: (error) => 'ENOENT' === (error as NodeJS.ErrnoException | undefined)?.code,
   };
+}
+
+/**
+ * A file's text, or undefined when it is missing, a directory or unreadable. Synchronous, for the
+ * few questions asked before any port exists, such as which git checkout a folder is in.
+ */
+export function readTextOrUndefined(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return undefined;
+  }
 }

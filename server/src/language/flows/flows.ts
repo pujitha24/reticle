@@ -29,7 +29,7 @@ import type {
   HealChange,
   InstrumentationGap,
 } from '@reticlehq/core';
-import { ReticleTool, flowJsonReplacer } from '@reticlehq/core';
+import { ReticleTool, flowJsonReplacer, mainCheckoutTwin } from '@reticlehq/core';
 import { asRecord, asString } from '@reticlehq/core';
 import { applyHealChanges } from './heal.js';
 import { withLearnedSources } from './learned-sources.js';
@@ -43,7 +43,7 @@ import {
 } from './flow-journey.js';
 import { IntentStore } from '@/memory/intent/intent-store.js';
 import type { CompiledProgram, RecordedStep } from './recording/tape/recordings.js';
-import type { FileSystemPort } from '@/memory/project/fs/fs-port.js';
+import { readTextOrUndefined, type FileSystemPort } from '@/memory/project/fs/fs-port.js';
 import {
   flowDir,
   flowParentDir,
@@ -343,11 +343,20 @@ export class FlowStore {
    * new run (`RunStore` takes the same callback). Without it a flow saved with no run behind it
    * waited for the timer, and a daemon that exited first never sent it.
    */
+  /**
+   * The main checkout's flows, read-only, when this store sits in a linked git worktree. A flow
+   * saved there and not yet committed is still replayed here. Writes never go to it.
+   */
+  readonly #main: FlowStore | undefined;
+
   constructor(fs: FileSystemPort, root: string, clock: Clock, opts: { onWrote?: () => void } = {}) {
     this.#fs = fs;
     this.#root = root;
     this.#clock = clock;
     this.#onWrote = opts.onWrote;
+    const twin = mainCheckoutTwin(root, readTextOrUndefined);
+    // The main checkout has no twin of its own, so this never nests deeper than one level.
+    this.#main = twin === undefined ? undefined : new FlowStore(fs, twin, clock);
   }
 
   /**
@@ -650,6 +659,12 @@ export class FlowStore {
    * name must validate first; `flowPath` takes a branded FlowName precisely so the compiler insists.
    */
   async list(projectId?: ProjectId): Promise<string[]> {
+    const own = await this.#listOwn(projectId);
+    if (this.#main === undefined) return own;
+    return [...new Set([...own, ...(await this.#main.list(projectId))])].sort();
+  }
+
+  async #listOwn(projectId?: ProjectId): Promise<string[]> {
     const flowsDir = reticleDirPaths(this.#root).flows;
     const pid = safeProjectId(projectId);
     const legacy = await this.#namesIn(flowsDir);
@@ -712,6 +727,12 @@ export class FlowStore {
    * back to a legacy flat (untagged) flow of the same name — so pre-existing flows keep loading.
    */
   async load(name: string, projectId?: ProjectId): Promise<FlowResult<FlowFile>> {
+    const own = await this.#loadOwn(name, projectId);
+    if (own.ok || own.code !== FlowErrorCode.NOT_FOUND || this.#main === undefined) return own;
+    return this.#main.load(name, projectId);
+  }
+
+  async #loadOwn(name: string, projectId?: ProjectId): Promise<FlowResult<FlowFile>> {
     if (!isValidFlowName(name)) return { ok: false, code: FlowErrorCode.INVALID_NAME };
     const path = await this.#resolveReadPath(name, safeProjectId(projectId));
     if (null === path) return { ok: false, code: FlowErrorCode.NOT_FOUND };

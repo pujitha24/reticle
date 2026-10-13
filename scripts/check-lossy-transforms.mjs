@@ -177,6 +177,10 @@ export const READ_PATH = Object.freeze({
       Declaration.REPORT,
       "readFileFrom caps what one read materialises (past V8's string ceiling, toString throws rather than shortening) and keeps the NEWEST bytes, returning `from` — where the returned text actually starts — beside the text, so a caller can see that it skipped and how far; `size` stays the file length fstat reported precisely so the two can disagree, which is how a short read becomes visible instead of silently decoding uninitialised memory",
     ],
+    readTextOrUndefined: [
+      Declaration.NONE,
+      'returns the whole file or undefined; its callers read only small `.git` and config files, and undefined means "not there", never a shortened text',
+    ],
   },
   'engine/src/window/network-detail-merge.ts': {
     mergeNetworkDetail: [

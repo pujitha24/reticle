@@ -118,6 +118,28 @@ describe('who the request is shared with', () => {
     expect((await declare()).shared).toBe(true);
   });
 
+  /** `git worktree add` copies no git-ignored `.reticle/cloud.json`: the worktree is still linked. */
+  it('goes to the platform from a worktree of a linked project', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'reticle-share-wt-'));
+    mkdirSync(join(dir, 'main', '.git', 'worktrees', 'wt'), { recursive: true });
+    writeFileSync(join(dir, 'main', '.git', 'HEAD'), 'ref: refs/heads/main');
+    mkdirSync(join(dir, 'main', '.reticle'));
+    writeFileSync(join(dir, 'main', '.reticle', 'cloud.json'), '{"projectId":"p"}');
+    mkdirSync(join(dir, 'wt', '.reticle'), { recursive: true });
+    writeFileSync(
+      join(dir, 'wt', '.git'),
+      `gitdir: ${join(dir, 'main', '.git', 'worktrees', 'wt')}`,
+    );
+    const root = join(dir, 'wt', '.reticle');
+    const { d, fs } = deps(1_000);
+    (d as { reticleRoot: string }).reticleRoot = root;
+    await intentTool?.handler(d, { action: 'declare', request: 'Refund a payment' });
+    const saved = PromptContextSchema.parse(
+      JSON.parse(await fs.readFile(reticleDirPaths(root).request)),
+    );
+    expect(saved.shared).toBe(true);
+  });
+
   it('stays on this machine when the project says shareRequests: false', async () => {
     expect((await declare({ shareRequests: false })).shared).toBe(false);
   });

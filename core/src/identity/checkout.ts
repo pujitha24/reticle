@@ -55,6 +55,22 @@ export function checkoutOf(
   return undefined;
 }
 
+/**
+ * The same path in the main checkout, when `path` sits in a linked worktree; otherwise undefined.
+ *
+ * What a fresh worktree does not have yet is often in the main checkout: an uncommitted or
+ * git-ignored `.reticle/cloud.json`, or a flow saved there and not yet committed. Callers read the
+ * twin only as a fallback, and never write to it.
+ */
+export function mainCheckoutTwin(
+  path: string,
+  readFile: (path: string) => string | undefined,
+): string | undefined {
+  const checkout = checkoutOf(path, readFile);
+  if (checkout === undefined || checkout.root === checkout.mainRoot) return undefined;
+  return `${checkout.mainRoot}${path.slice(checkout.root.length)}`;
+}
+
 function linkedCheckout(
   root: string,
   gitdir: string,

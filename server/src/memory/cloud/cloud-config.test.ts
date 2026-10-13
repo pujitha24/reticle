@@ -76,6 +76,29 @@ describe('resolveProjectCloud — per-project cloud binding + sync policy', () =
     });
   });
 
+  /**
+   * `.reticle/` is often git-ignored, so `git worktree add` copies no `cloud.json`. The worktree was
+   * unlinked: no sync and no Harness until `reticle connect` ran again inside it.
+   */
+  describe('a git worktree of a linked project', () => {
+    it("uses the main checkout's link when it has none of its own", async () => {
+      // <dir>/proj is the main checkout; <dir>/wt is a linked worktree of it.
+      await mkdir(join(dir, 'proj', '.git', 'worktrees', 'wt'), { recursive: true });
+      await writeFile(join(dir, 'proj', '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      await mkdir(join(dir, 'wt', '.reticle'), { recursive: true });
+      await writeFile(
+        join(dir, 'wt', '.git'),
+        `gitdir: ${join(dir, 'proj', '.git', 'worktrees', 'wt')}\n`,
+      );
+      await writeLink({ projectId: 'web', url: 'https://cloud.test' });
+      await writeCreds({ 'https://cloud.test::web': 'rk_live_web' });
+
+      const cloud = await resolveProjectCloud(fs, join(dir, 'wt', '.reticle'), homeDir, env);
+      expect(cloud.projectId).toBe('web');
+      expect(cloud.config?.apiKey).toBe('rk_live_web');
+    });
+  });
+
   describe('two tenants on one cloud', () => {
     const URL = 'https://cloud.test';
     const bothTenants = {

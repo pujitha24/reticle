@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutOf } from './checkout.js';
+import { checkoutOf, mainCheckoutTwin } from './checkout.js';
 
 /** A fake filesystem: path → contents. A missing path reads as undefined, like a missing file. */
 const fs =
@@ -89,5 +89,21 @@ describe('checkoutOf', () => {
 
   it('returns undefined outside any git repository', () => {
     expect(checkoutOf('/tmp/plain', fs({}))).toBeUndefined();
+  });
+});
+
+describe('mainCheckoutTwin', () => {
+  const read = fs({
+    '/wt/feat-x/.git': 'gitdir: /repo/.git/worktrees/feat-x',
+    '/repo/.git/HEAD': 'ref: refs/heads/main',
+  });
+
+  it('is the same path in the main checkout, for a path in a linked worktree', () => {
+    expect(mainCheckoutTwin('/wt/feat-x/apps/web/.reticle', read)).toBe('/repo/apps/web/.reticle');
+  });
+
+  it('is undefined in the main checkout itself, and outside git', () => {
+    expect(mainCheckoutTwin('/repo/apps/web/.reticle', read)).toBeUndefined();
+    expect(mainCheckoutTwin('/tmp/x/.reticle', read)).toBeUndefined();
   });
 });
