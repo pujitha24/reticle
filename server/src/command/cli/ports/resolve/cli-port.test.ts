@@ -626,3 +626,39 @@ describe('the scanned dev-server ports cover what people actually run', () => {
     for (const p of [4400, 4460, 4461, 4477]) expect(isLikelyDevServerPort(p)).toBe(false);
   });
 });
+
+/**
+ * A git worktree whose `.reticle.json` is git-ignored, or was never committed, has none. Its agent
+ * then read no projectId and no port: it started a second daemon on the default port, and its tabs
+ * and saved work were a different project from the main checkout's.
+ */
+describe('a git worktree with no .reticle.json of its own', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'reticle-wt-config-'));
+    await mkdir(join(dir, 'main', '.git', 'worktrees', 'wt'), { recursive: true });
+    await writeFile(join(dir, 'main', '.git', 'HEAD'), 'ref: refs/heads/main');
+    await writeFile(
+      join(dir, 'main', '.reticle.json'),
+      JSON.stringify({ projectId: 'shop-1a2b', port: 4466 }),
+    );
+    await mkdir(join(dir, 'wt', 'src'), { recursive: true });
+    await writeFile(
+      join(dir, 'wt', '.git'),
+      `gitdir: ${join(dir, 'main', '.git', 'worktrees', 'wt')}`,
+    );
+  });
+  afterEach(async () => {
+    await removeTempDir(dir);
+  });
+
+  it('reads the main checkout’s project id and port', () => {
+    expect(readProjectId(join(dir, 'wt', 'src'))).toBe('shop-1a2b');
+    expect(readProjectPort(join(dir, 'wt'))).toBe(4466);
+  });
+
+  it('keeps its own .reticle.json when it has one', async () => {
+    await writeFile(join(dir, 'wt', '.reticle.json'), JSON.stringify({ projectId: 'own-9f9f' }));
+    expect(readProjectId(join(dir, 'wt'))).toBe('own-9f9f');
+  });
+});

@@ -10,7 +10,12 @@
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { PROJECT_ID_HASH_LENGTH, TESTID_ATTR_PATTERN, projectIdFrom } from '@reticlehq/core';
+import {
+  PROJECT_ID_HASH_LENGTH,
+  TESTID_ATTR_PATTERN,
+  mainCheckoutTwin,
+  projectIdFrom,
+} from '@reticlehq/core';
 
 /** The project config `reticle init` writes, and the id of record it carries. */
 const RETICLE_CONFIG_BASENAME = '.reticle.json';
@@ -97,6 +102,45 @@ function readNearestField<T>(
   return undefined;
 }
 
+/**
+ * A field of the nearest `.reticle.json`, else of the main checkout's when `startDir` is in a git
+ * worktree that has none (it is git-ignored, or not committed yet). Every worktree of a project is
+ * the same project: one id, one daemon port.
+ */
+function readConfigField<T>(
+  startDir: string,
+  field: string,
+  readFile: ReadFile,
+  accept: (value: unknown) => T | undefined,
+): T | undefined {
+  const own = readNearestField(
+    startDir,
+    RETICLE_CONFIG_BASENAME,
+    field,
+    readFile,
+    MAX_CONFIG_SEARCH_DEPTH,
+    accept,
+  );
+  if (own !== undefined) return own;
+  const twin = mainCheckoutTwin(startDir, (path) => {
+    try {
+      return readFile(path);
+    } catch {
+      return undefined;
+    }
+  });
+  return twin === undefined
+    ? undefined
+    : readNearestField(
+        twin,
+        RETICLE_CONFIG_BASENAME,
+        field,
+        readFile,
+        MAX_CONFIG_SEARCH_DEPTH,
+        accept,
+      );
+}
+
 /** Read the `name` from the nearest package.json at or above `startDir`, or undefined if none. */
 function readNearestPackageName(
   startDir: string,
@@ -122,14 +166,7 @@ export function readConfiguredProjectId(
   startDir: string,
   readFile: ReadFile = readFileOrThrow,
 ): string | undefined {
-  return readNearestField(
-    startDir,
-    RETICLE_CONFIG_BASENAME,
-    'projectId',
-    readFile,
-    MAX_CONFIG_SEARCH_DEPTH,
-    nonEmptyString,
-  );
+  return readConfigField(startDir, 'projectId', readFile, nonEmptyString);
 }
 
 /**
@@ -143,14 +180,7 @@ export function readConfiguredPort(
   startDir: string,
   readFile: ReadFile = readFileOrThrow,
 ): number | undefined {
-  return readNearestField(
-    startDir,
-    RETICLE_CONFIG_BASENAME,
-    'port',
-    readFile,
-    MAX_CONFIG_SEARCH_DEPTH,
-    tcpPort,
-  );
+  return readConfigField(startDir, 'port', readFile, tcpPort);
 }
 
 /**
@@ -163,13 +193,8 @@ export function readConfiguredTestIdAttribute(
   startDir: string,
   readFile: ReadFile = readFileOrThrow,
 ): string | undefined {
-  return readNearestField(
-    startDir,
-    RETICLE_CONFIG_BASENAME,
-    'testIdAttribute',
-    readFile,
-    MAX_CONFIG_SEARCH_DEPTH,
-    (value) => ('string' === typeof value && TESTID_ATTR_PATTERN.test(value) ? value : undefined),
+  return readConfigField(startDir, 'testIdAttribute', readFile, (value) =>
+    'string' === typeof value && TESTID_ATTR_PATTERN.test(value) ? value : undefined,
   );
 }
 

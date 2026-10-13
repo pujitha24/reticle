@@ -156,6 +156,27 @@ describe('readConfiguredProjectId', () => {
   });
 });
 
+/**
+ * A git worktree whose `.reticle.json` is git-ignored has none. The plugin then derived an id from the
+ * worktree's path and dialled the default port: a second project and a second daemon for one app.
+ */
+describe('a git worktree with no .reticle.json of its own', () => {
+  const tree = (files: Record<string, string>) => (path: string) => {
+    const found = files[path.replaceAll('\\', '/')];
+    if (found === undefined) throw new Error(`ENOENT: ${path}`);
+    return found;
+  };
+  const read = tree({
+    '/wt/feat-x/.git': 'gitdir: /repo/.git/worktrees/feat-x',
+    '/repo/.reticle.json': '{"projectId":"acme-1234abcd","port":4471}',
+  });
+
+  it('reads the main checkout’s id and port', () => {
+    expect(readConfiguredProjectId('/wt/feat-x/src', read)).toBe('acme-1234abcd');
+    expect(readConfiguredPort('/wt/feat-x', read)).toBe(4471);
+  });
+});
+
 describe('readConfiguredPort', () => {
   // Same separator-agnostic fake tree as above.
   const tree = (files: Record<string, string>) => (path: string) => {

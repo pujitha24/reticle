@@ -18,7 +18,7 @@ import {
   isDesktopProject,
   packageName,
 } from '@reticlehq/init';
-import { asProjectId, type ProjectId } from '@reticlehq/core';
+import { asProjectId, mainCheckoutTwin, type ProjectId } from '@reticlehq/core';
 
 /** The project config `reticle init` writes. */
 export const RETICLE_CONFIG_BASENAME = '.reticle.json';
@@ -46,8 +46,24 @@ const MAX_CONFIG_SEARCH_DEPTH = 6;
  * Returns undefined when nothing is found, which keeps every caller's existing default intact.
  */
 export function findProjectConfig(cwd: string): Record<string, unknown> | undefined {
-  const dir = findProjectConfigDir(cwd);
+  const dir = findProjectConfigDir(cwd) ?? configDirInMainCheckout(cwd);
   return dir === undefined ? undefined : readConfigAt(dir);
+}
+
+/**
+ * The main checkout's config folder, for a git worktree that has no `.reticle.json` of its own (it
+ * is git-ignored, or not committed yet). Every worktree is the same project, so it keeps one id and
+ * one port. Only the config's VALUES come from here; the worktree stays the project folder.
+ */
+function configDirInMainCheckout(cwd: string): string | undefined {
+  const twin = mainCheckoutTwin(resolve(cwd), (path) => {
+    try {
+      return readFileSync(path, 'utf8');
+    } catch {
+      return undefined; // Missing or a directory: not the `.git` file this looks for.
+    }
+  });
+  return twin === undefined ? undefined : findProjectConfigDir(twin);
 }
 
 /** The directory holding the nearest `.reticle.json` at or above `cwd`, by the same walk. */
