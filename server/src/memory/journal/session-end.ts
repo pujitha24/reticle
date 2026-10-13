@@ -25,8 +25,8 @@ import {
 } from '@reticlehq/core/telemetry';
 import { AmbientStore } from './ambient-store.js';
 import type { AmbientCounts } from '@reticlehq/engine/window/ambient.js';
-import { type ProjectId, subjectOf, type JournalAction } from '@reticlehq/core';
-import type { FileSystemPort } from '@/memory/project/fs/fs-port.js';
+import { type ProjectId, checkoutOf, subjectOf, type JournalAction } from '@reticlehq/core';
+import { readTextOrUndefined, type FileSystemPort } from '@/memory/project/fs/fs-port.js';
 import { pruneWorkspace, type PruneWorkspaceOptions } from './on-disk/startup-maintenance.js';
 import { buildVerificationRun } from '@/judgement/runs/artifact/build-verification-run.js';
 import {
@@ -323,6 +323,7 @@ export async function recordDriveRun(
     agentClaims: agentEndClaims(session.id),
     ...(session.projectId === undefined ? {} : { projectId: session.projectId }),
     projectName: basename(dirname(root)),
+    branch: checkoutOf(dirname(root), readTextOrUndefined)?.branch,
   });
   if (0 === inputs.length) return;
   // The protocol reaching the artifact a person actually reads. Only when the session could say

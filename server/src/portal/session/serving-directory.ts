@@ -61,12 +61,16 @@ export function servingDirectoryOf(
 }
 
 /**
+ * How long one origin's serving checkout is trusted.
+ * ponytail: a dev server restarted in another worktree on the same port is named stale for up to
+ * this long; invalidate on a new HELLO from that origin if that ever matters.
+ */
+const SERVING_TTL_MS = 30_000;
+
+/**
  * The live answers for a worktree-scoped resolve: the calling agent's checkout (from the directory
  * its MCP proxy runs in) and each tab's checkout (from the dev server that served it).
  */
-/** How long one origin's serving checkout is trusted. A dev server can restart in another worktree. */
-const SERVING_TTL_MS = 30_000;
-
 export function liveCheckoutSource(now: () => number = Date.now): CheckoutSource {
   const cache = new Map<string, { at: number; checkout: Checkout | undefined }>();
   return {

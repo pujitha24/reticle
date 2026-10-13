@@ -542,6 +542,12 @@ export const ReticleVerificationRunSchema = z.object({
     name: z.string(),
     framework: z.nativeEnum(RunFramework),
     commit: z.string().optional(),
+    /**
+     * The git branch of the checkout that served the page. Several agents can drive one project at
+     * once, each in its own worktree; the branch tells their runs apart. Optional and additive: an
+     * older reader strips it and keeps the run.
+     */
+    branch: z.string().optional(),
     env: z.nativeEnum(RunEnv).optional(),
     previewUrl: z.string().optional(),
   }),

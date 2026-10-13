@@ -33,6 +33,15 @@ const minimal = {
 };
 
 describe('ReticleVerificationRunSchema', () => {
+  /** A store that re-parses a run must not drop the branch that tells parallel worktrees apart. */
+  it('keeps the git branch of the project on a round trip', () => {
+    const parsed = ReticleVerificationRunSchema.parse({
+      ...minimal,
+      project: { ...minimal.project, branch: 'feat/refunds' },
+    });
+    expect(parsed.project.branch).toBe('feat/refunds');
+  });
+
   it('parses a minimal run and applies array defaults', () => {
     const parsed = ReticleVerificationRunSchema.safeParse(minimal);
     expect(parsed.success).toBe(true);

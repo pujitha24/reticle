@@ -62,6 +62,8 @@ export interface DriveRunDeps {
   /** The MCP client's own claim from the handshake, when it made one. */
   agentId?: string | undefined;
   framework?: RunFramework | undefined;
+  /** The git branch of the checkout that served the tab, so parallel worktrees' runs differ. */
+  branch?: string | undefined;
   /**
    * Which round of source edits this drive's evidence belongs to.
    *
@@ -307,6 +309,7 @@ export function driveRunFrom(
       // Never the daemon's own name: a tab that reported no project is named by its folder.
       name: deps.projectId ?? deps.projectName ?? UNNAMED_AGENT,
       framework: deps.framework ?? RunFramework.OTHER,
+      ...(deps.branch === undefined ? {} : { branch: deps.branch }),
     },
     agent: {
       id: deps.agentId ?? soleAgent(actions) ?? UNNAMED_AGENT,

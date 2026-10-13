@@ -17,11 +17,6 @@ import {
 import { SESSION_DISCONNECTED_REASON, SESSION_PARKED_REASON } from './facts/session-replaced.js';
 import { isErrorDocument } from './session-info.js';
 
-/**
- * The agent's active project, used to scope auto-selection. `projectId` is the stable build-stamped
- * identity (authoritative when present); `url` is the app origin, a fallback hint for older SDKs that
- * don't stamp a projectId. Both optional — an empty scope means "no project filter" (legacy behavior).
- */
 /** The two checkout facts a worktree-scoped resolve needs. */
 export interface CheckoutSource {
   /** The git checkout of the agent making this call. */
@@ -30,6 +25,11 @@ export interface CheckoutSource {
   ofUrl: (url: string) => Checkout | undefined;
 }
 
+/**
+ * The agent's active project, used to scope auto-selection. `projectId` is the stable build-stamped
+ * identity (authoritative when present); `url` is the app origin, a fallback hint for older SDKs that
+ * don't stamp a projectId. Both optional — an empty scope means "no project filter" (legacy behavior).
+ */
 interface ResolveScope {
   projectId?: string;
   url?: string;
@@ -760,16 +760,6 @@ export class SessionManager {
   }
 }
 
-/**
- * Which of a project's tabs belong to the agent's own git checkout.
- *
- * Every worktree of a project declares the same projectId, so the project scope lets an agent in
- * worktree A land on the tab worktree B serves. That tab runs B's code, and a verdict on it is about
- * code agent A never touched. The agent's checkout comes from the directory its MCP proxy runs in;
- * a tab's checkout comes from the dev server that served it.
- *
- * Conservative: it narrows only on facts. A tab whose checkout cannot be read keeps today's answer.
- */
 interface Tab {
   id: string;
   url: string;
@@ -781,6 +771,16 @@ export interface CheckoutScope<S> {
   refusal?: string;
 }
 
+/**
+ * Which of a project's tabs belong to the agent's own git checkout.
+ *
+ * Every worktree of a project declares the same projectId, so the project scope lets an agent in
+ * worktree A land on the tab worktree B serves. That tab runs B's code, and a verdict on it is about
+ * code agent A never touched. The agent's checkout comes from the directory its MCP proxy runs in;
+ * a tab's checkout comes from the dev server that served it.
+ *
+ * Conservative: it narrows only on facts. A tab whose checkout cannot be read keeps today's answer.
+ */
 export function scopeToCallerCheckout<S extends Tab>(
   sessions: readonly S[],
   caller: Checkout | undefined,
