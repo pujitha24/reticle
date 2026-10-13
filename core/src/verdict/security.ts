@@ -51,15 +51,25 @@ const VALUE_PICKER_ROLES: ReadonlySet<string> = new Set(['option', 'radio']);
 /** The hostnames that ARE loopback outright, with no parsing: the name, and IPv6 ::1 both ways. */
 const LOOPBACK_HOSTNAMES: readonly string[] = ['localhost', '::1', '0:0:0:0:0:0:0:1'];
 
+/** The suffix of a name RFC 6761 reserves for loopback (`app.localhost`, `feat.app.localhost`). */
+const LOCALHOST_SUFFIX = '.localhost';
+
 /** IPv4 loopback is the whole 127.0.0.0/8 block, so the first octet is the entire test. */
 const IPV4_LOOPBACK_FIRST_OCTET = '127';
 const IPV4_OCTET_COUNT = 4;
 const IPV4_OCTET_MAX = 255;
 
-/** True only for literal loopback hosts, never lookalike DNS names such as 127.example.com. */
+/**
+ * True only for loopback hosts: literal addresses, `localhost`, and names under `.localhost`. Never a
+ * lookalike DNS name such as 127.example.com or localhost.example.
+ */
 export function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (LOOPBACK_HOSTNAMES.includes(normalized)) return true;
+  // RFC 6761: every name under `.localhost` is loopback, and nobody can register one.
+  if (normalized.endsWith(LOCALHOST_SUFFIX) && normalized.length > LOCALHOST_SUFFIX.length) {
+    return !normalized.startsWith('.');
+  }
   const octets = normalized.split('.');
   return (
     IPV4_OCTET_COUNT === octets.length &&

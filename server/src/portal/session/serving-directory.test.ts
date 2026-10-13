@@ -34,6 +34,26 @@ describe('servingDirectoryOf', () => {
     expect(shelledOut).toBe(false);
   });
 
+  /**
+   * A dev proxy (portless) serves every worktree on port 443 under its own name, and the dev server
+   * behind it listens on another port. The port cannot tell the worktrees apart; the announced URL can.
+   */
+  it('matches a dev server by the URL it announced, before the port', () => {
+    const behindProxy = (port: number, root: string, url: string): DevServerEntry => ({
+      ...entry(port, root),
+      url,
+    });
+    const dir = servingDirectoryOf('https://feat-x.app.localhost', {
+      devServers: () => [
+        behindProxy(4101, MAIN, 'https://app.localhost'),
+        behindProxy(4102, CLONE, 'https://feat-x.app.localhost'),
+      ],
+      listenerCwd: () => MAIN,
+    });
+
+    expect(dir).toBe(CLONE);
+  });
+
   it('falls back to the working directory of whatever listens on the port', () => {
     const ports: number[] = [];
     const dir = servingDirectoryOf('http://127.0.0.1:3001', {

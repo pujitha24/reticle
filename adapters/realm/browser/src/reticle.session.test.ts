@@ -105,6 +105,19 @@ describe('connectionPolicy', () => {
     });
   }
 
+  // A dev proxy (portless) serves each git worktree on its own `.localhost` name over https.
+  it('allows a page on a .localhost name to reach a loopback bridge', () => {
+    expect(
+      connectionPolicy(
+        'feat-x.app.localhost',
+        'ws://127.0.0.1:4400/reticle',
+        false,
+        undefined,
+        'https:',
+      ),
+    ).toEqual({ allowed: true });
+  });
+
   it('still blocks a remote https page even though its bridge is loopback', () => {
     expect(
       connectionPolicy('evil.example', 'ws://127.0.0.1:4400/reticle', false, undefined, 'https:')

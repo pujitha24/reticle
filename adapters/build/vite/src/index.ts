@@ -12,7 +12,7 @@ import {
 } from '@reticlehq/core';
 import { readConfiguredTestIdAttribute, resolveProjectId } from './project-id.js';
 import { resolveDaemonPort } from './discover-port.js';
-import { announceDevServer } from './announce.js';
+import { announceDevServer, announcedUrl } from './announce.js';
 import { stampSvelte } from './svelte-source.js';
 import {
   NODE_MODULES,
@@ -870,7 +870,7 @@ export function reticle(options: ReticleVitePluginOptions = {}): ReticleVitePlug
           port,
           pid: process.pid,
           root: opts.root ?? process.cwd(),
-          url: server.resolvedUrls?.local[0] ?? `http://localhost:${String(port)}/`,
+          url: announcedUrl(process.env, server.resolvedUrls?.local[0], port),
           ...(opts.sdkVersion === undefined || 0 === opts.sdkVersion.length
             ? {}
             : { sdkVersion: opts.sdkVersion }),

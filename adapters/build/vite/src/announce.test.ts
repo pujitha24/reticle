@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { DevServerEntrySchema, devServerRegistryFileName } from '@reticlehq/core';
-import { announceDevServer, type AnnounceIo } from './announce.js';
+import { announceDevServer, announcedUrl, type AnnounceIo } from './announce.js';
 
 const HOME = '/home/.reticle';
 
@@ -76,5 +76,26 @@ describe('announceDevServer', () => {
     };
     const done = announceDevServer(entry, HOME, io);
     expect(() => done()).not.toThrow();
+  });
+});
+
+describe('announcedUrl', () => {
+  it('is the URL Vite reports, by default', () => {
+    expect(announcedUrl({}, 'http://localhost:5173/', 5173)).toBe('http://localhost:5173/');
+  });
+
+  /** portless runs the dev server behind `https://<branch>.<app>.localhost` and says so in env. */
+  it('is the dev proxy URL when one runs the dev server', () => {
+    expect(
+      announcedUrl(
+        { PORTLESS_URL: 'https://feat-x.app.localhost' },
+        'http://localhost:4123/',
+        4123,
+      ),
+    ).toBe('https://feat-x.app.localhost');
+  });
+
+  it('is composed from the port when Vite reports none', () => {
+    expect(announcedUrl({}, undefined, 5173)).toBe('http://localhost:5173/');
   });
 });

@@ -69,3 +69,21 @@ export function announceDevServer(
     }
   };
 }
+
+/**
+ * The environment variable a dev proxy sets to the URL the app is served on. portless runs each app,
+ * and each git worktree of it, at `https://<branch>.<app>.localhost`, while the dev server listens on
+ * a port of its own. The page's origin is the proxy URL, so that is what the daemon must match.
+ */
+const DEV_PROXY_URL_ENV = 'PORTLESS_URL';
+
+/** The URL to announce: the dev proxy's when one runs this server, else the one Vite reports. */
+export function announcedUrl(
+  env: Readonly<Record<string, string | undefined>>,
+  reported: string | undefined,
+  port: number,
+): string {
+  const proxied = env[DEV_PROXY_URL_ENV];
+  if (proxied !== undefined && proxied.length > 0) return proxied;
+  return reported ?? `http://localhost:${String(port)}/`;
+}

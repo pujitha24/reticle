@@ -98,6 +98,16 @@ describe('Bridge security boundary', () => {
     expect(bridge.sessions.get('tauri-win')).toBeDefined();
   });
 
+  // A dev proxy such as portless serves each app, and each git worktree of it, on its own
+  // `.localhost` name over https. RFC 6761 reserves those names for loopback. They got 403 here.
+  it('accepts a worktree page served on a .localhost name', async () => {
+    const { bridge, port } = await makeBridge();
+    const socket = await openSocket(port, 'https://feat-x.app.localhost');
+    socket.send(JSON.stringify(hello('portless-wt')));
+    await waitUntil(() => 1 === bridge.sessions.count());
+    expect(bridge.sessions.get('portless-wt')).toBeDefined();
+  });
+
   it('still rejects a lookalike that merely ENDS with the Tauri hostname', async () => {
     const { port } = await makeBridge();
     await expect(openSocket(port, 'http://evil-tauri.localhost.example')).rejects.toThrow(

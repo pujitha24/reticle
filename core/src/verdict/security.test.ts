@@ -20,6 +20,21 @@ describe('isLoopbackHostname', () => {
     expect(isLoopbackHostname('localhost.example')).toBe(false);
     expect(isLoopbackHostname('127.0.0.999')).toBe(false);
   });
+
+  /**
+   * RFC 6761 reserves `.localhost` for loopback, and browsers resolve it locally. Dev proxies such as
+   * portless serve `https://<branch>.<app>.localhost`, one name for each git worktree. These pages
+   * were read as remote, so the SDK refused to start and the bridge refused the origin.
+   */
+  it('accepts a .localhost subdomain, and nothing that only contains the word', () => {
+    expect(isLoopbackHostname('app.localhost')).toBe(true);
+    expect(isLoopbackHostname('feat-x.app.localhost')).toBe(true);
+    expect(isLoopbackHostname('APP.LOCALHOST')).toBe(true);
+    expect(isLoopbackHostname('app.localhost.')).toBe(false);
+    expect(isLoopbackHostname('evil-localhost')).toBe(false);
+    expect(isLoopbackHostname('localhost.evil.example')).toBe(false);
+    expect(isLoopbackHostname('.localhost')).toBe(false);
+  });
 });
 
 describe('isDangerousActionText', () => {

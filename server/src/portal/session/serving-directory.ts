@@ -50,6 +50,9 @@ export function servingDirectoryOf(
     return undefined;
   }
   if (!isLoopbackHostname(url.hostname)) return undefined;
+  // Exact first: a dev proxy serves every worktree on one port, under the name it announced.
+  const byUrl = io.devServers().find((entry) => originOf(entry.url) === url.origin);
+  if (byUrl !== undefined) return byUrl.root;
   const port = '' === url.port ? DEFAULT_PORT[url.protocol] : Number(url.port);
   if (port === undefined) return undefined;
   const announced = io.devServers().find((entry) => entry.port === port);
