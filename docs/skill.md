@@ -166,6 +166,7 @@ It answers within `wait` seconds, or `{ status: "running", runId }`: poll `retic
 | destructive action blocked | `args.confirmDangerous: true`, only if the user wants that press |
 | version skew | `npx @reticlehq/server stop`, then retry |
 | port held by a non-Reticle process | stop that process, or run Reticle on another `--port` |
+| tab served from another worktree | start the dev server in your own worktree; keep the port |
 
 More: `https://docs.reticle.sh/troubleshooting.md`.
 

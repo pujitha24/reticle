@@ -338,6 +338,18 @@ describe('worktree-scoped resolve()', () => {
     expect(bridge.sessions.resolve(undefined, { projectId: 'app' }).id).toBe('tab-b');
   });
 
+  /** Work in a worktree is invisible unless the agent can see which tab runs which branch. */
+  it('names the worktree and branch of each tab in the session list', async () => {
+    bridge.sessions.setCheckoutScope({ caller: () => WT_A, ofUrl: (url) => servedBy[url] });
+    await connect({ sessionId: 'tab-main', url: 'http://localhost:5173/', projectId: 'app' });
+    await connect({ sessionId: 'tab-b', url: 'http://localhost:5175/', projectId: 'app' });
+    await waitForSessions(2);
+
+    const rows = new Map(bridge.sessions.list().map((row) => [row.sessionId, row.worktree]));
+    expect(rows.get('tab-b')).toBe('/wt/b (branch feat/b)');
+    expect(rows.get('tab-main')).toBeUndefined();
+  });
+
   it('refuses another worktree’s only tab, and an explicit sessionId still reaches it', async () => {
     bridge.sessions.setCheckoutScope({ caller: () => WT_A, ofUrl: (url) => servedBy[url] });
     await connect({ sessionId: 'tab-b', url: 'http://localhost:5175/', projectId: 'app' });

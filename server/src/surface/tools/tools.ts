@@ -93,6 +93,12 @@ export const RAW_TOOLS: ToolDef[] = withCompactEnvelope([
             sessionId: z.string(),
             url: z.string(),
             projectId: z.string().optional(),
+            worktree: z
+              .string()
+              .optional()
+              .describe(
+                'The linked git worktree, and its branch, whose dev server served this tab. Absent for the main checkout. A tab of another worktree runs other code: drive the one your change is in.',
+              ),
             title: z.string().optional(),
             adapters: z.array(z.string()),
             hasCapabilities: z.boolean(),

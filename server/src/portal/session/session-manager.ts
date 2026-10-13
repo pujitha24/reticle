@@ -321,10 +321,18 @@ export class SessionManager {
   }
 
   list(): SessionInfo[] {
+    // Only an agent whose repository has worktrees pays for the serving lookups.
+    const worktreeOf =
+      this.#checkoutScope?.caller() === undefined ? undefined : this.#checkoutScope.ofUrl;
     return [...this.#sessions.values()].map((s) => {
       const info = s.info();
       const attachment = this.#attachment.of(s.id);
-      return attachment === undefined ? info : { ...info, attachment };
+      const served = worktreeOf?.(info.url);
+      return {
+        ...info,
+        ...(attachment === undefined ? {} : { attachment }),
+        ...(true === served?.linked ? { worktree: describeCheckout(served) } : {}),
+      };
     });
   }
 

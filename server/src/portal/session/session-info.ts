@@ -18,6 +18,11 @@ export interface SessionInfo {
   url: string;
   /** Stable build-stamped project identity; absent for v1.0 SDKs that don't send it. */
   projectId?: string;
+  /**
+   * The linked git worktree whose dev server served this tab, with its branch. Present only when the
+   * daemon can tell, and only for a worktree, not the main checkout.
+   */
+  worktree?: string;
   /** Absent when the page has no title — never the empty string. Fall back to `url`. */
   title?: string;
   adapters: string[];
