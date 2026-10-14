@@ -253,6 +253,47 @@ describe('a project one checkout declares, served from a linked worktree', () =>
 
     expect(resolved.root).toBe(join(MAIN, ReticleDir.ROOT));
   });
+
+  /**
+   * Claude Code puts worktrees inside the main checkout (`.claude/worktrees/a`), so discovery finds
+   * several checkouts that declare the project. A page served from a worktree outside all of them
+   * fell through to the daemon's own folder, and agent C's runs were written into worktree A.
+   */
+  it('writes into the serving worktree when several checkouts declare the project', () => {
+    const nestedA = join(MAIN, '.claude', 'worktrees', 'a');
+    const resolved = artifactRootResolver(join(nestedA, ReticleDir.ROOT), {
+      candidates: () => [
+        { projectId: MAIN_ID, directory: MAIN },
+        { projectId: MAIN_ID, directory: nestedA },
+      ],
+      daemonIsProject: () => true,
+      servingDirectory: () => WT,
+      checkout: (dir) =>
+        dir.startsWith(nestedA)
+          ? { root: nestedA, mainRoot: MAIN, commonDir: join(MAIN, '.git'), linked: true }
+          : checkouts(dir),
+      hasWorktrees: () => true,
+    })(asProjectId(MAIN_ID), ORIGIN);
+
+    expect(resolved.reason).toBe(ArtifactRootReason.MATCHED_PROJECT);
+    expect(resolved.root).toBe(join(WT, ReticleDir.ROOT));
+  });
+
+  /** A port that moves to another worktree is a new tab connection, and its work moves with it. */
+  it('asks again where the page was served for each connection', () => {
+    let serving = WT;
+    const resolve = artifactRootResolver(join(MAIN, ReticleDir.ROOT), {
+      candidates: onlyMain,
+      daemonIsProject: () => true,
+      servingDirectory: () => serving,
+      checkout: checkouts,
+      hasWorktrees: () => true,
+    });
+
+    expect(resolve(asProjectId(MAIN_ID), ORIGIN).root).toBe(join(WT, ReticleDir.ROOT));
+    serving = MAIN;
+    expect(resolve(asProjectId(MAIN_ID), ORIGIN).root).toBe(join(MAIN, ReticleDir.ROOT));
+  });
 });
 
 /**

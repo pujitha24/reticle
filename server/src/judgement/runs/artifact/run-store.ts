@@ -8,6 +8,7 @@
 
 import {
   asRunId,
+  checkoutOf,
   ReticleVerificationRunSchema,
   RUN_RETENTION,
   RUN_RETENTION_SLACK,
@@ -20,14 +21,14 @@ import {
   type StepScreenshot,
 } from '@reticlehq/core';
 import { PromptContextSchema, type PromptContext } from '@reticlehq/core/artifacts';
-import type { FileSystemPort } from '@/memory/project/fs/fs-port.js';
+import { readTextOrUndefined, type FileSystemPort } from '@/memory/project/fs/fs-port.js';
 import {
   reticleDirPaths,
   isValidRunId,
   runPath,
   stepShotDir,
 } from '@/memory/project/dir/reticle-dir.js';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const JSON_INDENT = 2;
 const JSON_EXT = '.json';
@@ -90,6 +91,11 @@ export class RunStore {
     // The step screenshots taken for this run, the last of which may still be landing.
     await shotsLanded(this.#root, run.runId);
     run = withScreenshots(run, await readStepShots(this.#fs, this.#root, run.runId));
+    // Several agents drive one project at once, each in its own git worktree. Every run kind is
+    // written here, so here the run learns which branch it belongs to.
+    const branch =
+      run.project.branch ?? checkoutOf(dirname(this.#root), readTextOrUndefined)?.branch;
+    if (branch !== undefined) run = { ...run, project: { ...run.project, branch } };
     // Atomic publish: write a temp file then rename, so a crash mid-write never leaves a half-written
     // artifact (a partial.json would otherwise read back as MALFORMED).
     const path = runPath(this.#root, run.runId);

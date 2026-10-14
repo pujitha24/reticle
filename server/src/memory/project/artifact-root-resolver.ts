@@ -221,28 +221,30 @@ export function artifactRootResolver(
     : undefined;
   /** Said once per project, reason and folder: one session's calls repeated it 16 times in 3s. */
   const told = new Set<string>();
-  // ponytail: asked once per origin (it shells out); a dev server moved to another folder on the
-  // same port is named stale until the daemon restarts.
-  const servedFrom = new Map<string, string | undefined>();
-  const servingOf = (origin: string): string | undefined => {
-    if (!servedFrom.has(origin)) servedFrom.set(origin, servingDirectory(origin));
-    return servedFrom.get(origin);
-  };
   const checkout = deps.checkout ?? checkoutAt;
   const hasWorktrees = deps.hasWorktrees ?? hasLinkedWorktrees;
-  // Every worktree of a project declares the same id, and discovery usually knows only the main
-  // checkout. The page's own checkout decides, so a worktree's flows and runs stay on its branch.
-  // Only a repository that HAS worktrees pays for the serving lookup, which can shell out.
-  const intoServingWorktree = (resolved: ArtifactRoot, origin: string): ArtifactRoot => {
-    const project = dirname(resolved.root);
-    const from = checkout(project);
-    if (from === undefined || !hasWorktrees(from.commonDir)) return resolved;
-    const serving = servingOf(origin);
+  /**
+   * The one folder `directories` stand for in the checkout that served the page, or undefined when
+   * they do not agree. Every worktree of a project declares the same id, and discovery usually knows
+   * only some of them, so the page's own checkout decides and a worktree's work stays on its branch.
+   */
+  const inServingCheckout = (
+    directories: readonly string[],
+    serving: string | undefined,
+  ): string | undefined => {
     const to = serving === undefined ? undefined : checkout(serving);
-    const moved = rebaseIntoCheckout(project, from, to);
-    return moved === project ? resolved : { ...resolved, root: join(moved, ReticleDir.ROOT) };
+    const moved = new Set(directories.map((d) => rebaseIntoCheckout(d, checkout(d), to)));
+    return 1 === moved.size ? [...moved][0] : undefined;
   };
   return (projectId, origin) => {
+    // Asked at most once for each connection, and again for the next one: it can shell out, and a
+    // port that moves to another worktree is a new connection whose work must move with it.
+    let served: { directory: string | undefined } | undefined;
+    const serving = (): string | undefined => {
+      if (origin === undefined) return undefined;
+      served ??= { directory: servingDirectory(origin) };
+      return served.directory;
+    };
     const known = candidates();
     let resolved = resolveArtifactRoot({ projectId, candidates: known, daemonRoot });
     // Several checkouts declare this project — every git worktree carries the same committed
@@ -253,11 +255,31 @@ export function artifactRootResolver(
         projectId,
         candidates: known,
         daemonRoot,
-        servingDirectory: servingOf(origin),
+        servingDirectory: serving(),
       });
+      // Worktrees nested in the main checkout (`.claude/worktrees/a`) are all candidates, and a page
+      // served from another worktree is inside none of them. It fell back to the daemon's folder.
+      const directory =
+        resolved.reason === ArtifactRootReason.AMBIGUOUS
+          ? inServingCheckout(resolved.candidates ?? [], serving())
+          : undefined;
+      if (directory !== undefined) {
+        resolved = {
+          root: join(directory, ReticleDir.ROOT),
+          reason: ArtifactRootReason.MATCHED_PROJECT,
+        };
+      }
     }
-    if (resolved.reason === ArtifactRootReason.MATCHED_PROJECT)
-      return origin === undefined ? resolved : intoServingWorktree(resolved, origin);
+    if (resolved.reason === ArtifactRootReason.MATCHED_PROJECT) {
+      const project = dirname(resolved.root);
+      const from = origin === undefined ? undefined : checkout(project);
+      // Only a repository that HAS worktrees pays for the serving lookup.
+      if (from === undefined || !hasWorktrees(from.commonDir)) return resolved;
+      const moved = inServingCheckout([project], serving());
+      return moved === undefined || moved === project
+        ? resolved
+        : { ...resolved, root: join(moved, ReticleDir.ROOT) };
+    }
     // Could not name the project. The old code wrote into the daemon's directory anyway and said
     // nothing, which put `.reticle/` — journals included — into repositories nobody had
     // instrumented. Evidence still has to live somewhere, so it goes to the user's own
@@ -289,7 +311,7 @@ export function artifactRootResolver(
     }
     // Named so the agent is told WHICH checkout's work is stranded: a clone serving the app was
     // never named, only the primary checkout's folders.
-    const serving = origin === undefined ? undefined : servingOf(origin);
-    return { ...resolved, root, ...(serving === undefined ? {} : { serving }) };
+    const servedFrom = serving();
+    return { ...resolved, root, ...(servedFrom === undefined ? {} : { serving: servedFrom }) };
   };
 }

@@ -62,17 +62,6 @@ describe('a drive folded into a run', () => {
     expect(run?.project.name).toBe('priya-shop');
   });
 
-  /**
-   * Several agents drive one project at once, each in its own git worktree. Without the branch, the
-   * dashboard showed their runs as one stream and the work of each worktree could not be told apart.
-   */
-  it('carries the git branch of the worktree that served the tab', () => {
-    const run = driveRunFrom([action(Verified.YES)], { ...DEPS, branch: 'feat/refunds' });
-    expect(run?.project.branch).toBe('feat/refunds');
-    const plain = driveRunFrom([action(Verified.YES)], DEPS);
-    expect(plain?.project).not.toHaveProperty('branch');
-  });
-
   // A failed check carries the calls of its window to the run, so its issue can show the request.
   it("carries a failed check's requests as its evidence", () => {
     const call = { method: 'POST', url: '/api/saved-items', status: 200, body: '{}' };

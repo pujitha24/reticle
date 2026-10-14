@@ -60,7 +60,7 @@ describe('the request behind a verification', () => {
     await intentTool?.handler(d, { action: 'declare', request: 'Add reorder' });
     const store = new RunStore(fs, ROOT);
     const run = (id: string, createdAt: number) =>
-      ({ runId: id, createdAt, flows: [], checks: [] }) as never;
+      ({ runId: id, createdAt, project: { name: 'p' }, flows: [], checks: [] }) as never;
     await store.write(run('run-soon', 2_000));
     await store.write(run('run-later', 1_000 + 7 * 60 * 60 * 1000));
     const soon = JSON.parse(await fs.readFile(`${ROOT}/runs/run-soon.json`)) as {
@@ -85,7 +85,7 @@ describe('a request belongs to the run that answered it', () => {
     await intentTool?.handler(d, { action: 'declare', request: 'Sign in and check Diagnostics' });
     const store = new RunStore(fs, ROOT);
     const run = (id: string, createdAt: number) =>
-      ({ runId: id, createdAt, flows: [], checks: [] }) as never;
+      ({ runId: id, createdAt, project: { name: 'p' }, flows: [], checks: [] }) as never;
     const read = async (id: string) =>
       (
         JSON.parse(await fs.readFile(`${ROOT}/runs/${id}.json`)) as {

@@ -1,6 +1,6 @@
 import { removeTempDir } from '@/machine/temp-dir.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,6 +48,25 @@ describe('RunStore — temp-dir filesystem, never touches the repo', () => {
 
   afterEach(async () => {
     await removeTempDir(join(root, '..'));
+  });
+
+  /**
+   * Several agents drive one project at once, each in its own git worktree. A replay run and a CLI
+   * verify run had no branch, so the dashboard could not tell the worktrees' runs apart. Every run is
+   * written here, so the branch is stamped here.
+   */
+  it('stamps the git branch of the checkout that holds the runs', async () => {
+    await mkdir(join(root, '..', '.git'), { recursive: true });
+    await writeFile(join(root, '..', '.git', 'HEAD'), 'ref: refs/heads/feat/refunds\n');
+    await store.write(make('on-branch', 1));
+    const read = await store.read(asRunId('on-branch'));
+    expect(read.ok && read.run.project.branch).toBe('feat/refunds');
+  });
+
+  it('writes no branch outside git', async () => {
+    await store.write(make('no-git', 1));
+    const read = await store.read(asRunId('no-git'));
+    expect(read.ok && read.run.project).not.toHaveProperty('branch');
   });
 
   /**
