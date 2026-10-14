@@ -95,6 +95,20 @@ describe('FlowStore in a linked git worktree', () => {
       expect(existsSync(flowPath(wtRoot, asFlowName('checkout')))).toBe(true);
       expect(readFileSync(flowPath(mainRoot, asFlowName('checkout')), 'utf8')).toBe(before);
     });
+
+    /**
+     * A worktree drives a journey the main checkout already saved under its own name. It stays one
+     * flow: that named flow covers the drive, so nothing is saved again, and the main checkout is
+     * unchanged.
+     */
+    it('saves no second copy of a journey the main checkout already named', async () => {
+      const store = new FlowStore(createNodeFileSystem(), wtRoot, clock);
+      const before = readFileSync(flowPath(mainRoot, asFlowName('checkout')), 'utf8');
+      await store.saveJourney(click('drive-saved-checkout'), undefined, 'drive-');
+      expect(await store.list()).toEqual(['checkout']);
+      expect(existsSync(flowPath(wtRoot, asFlowName('drive-saved-checkout')))).toBe(false);
+      expect(readFileSync(flowPath(mainRoot, asFlowName('checkout')), 'utf8')).toBe(before);
+    });
   });
 
   describe('when git tracks .reticle/', () => {

@@ -14,6 +14,10 @@ import {
   isLocalhostSubdomain,
   isLoopbackHostname,
 } from '@reticlehq/core';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { z } from 'zod';
 import { captureLookup, findListenerCwd } from '@/command/cli/ports/port-holder.js';
 import { reticleStateHome } from '@/command/daemon/daemon.js';
 import { readDevServers } from '@/command/daemon/dev-servers.js';
@@ -27,13 +31,59 @@ export interface ServingDirectoryIo {
   devServers: () => readonly DevServerEntry[];
   /** The working directory of whatever listens on `port`, or null when it cannot be read. */
   listenerCwd: (port: number) => string | null;
+  /** A running dev proxy that serves names under `.localhost`, or undefined when there is none. */
+  devProxy?: () => DevProxy | undefined;
+}
+
+/** A dev proxy: the ports it listens on, and the dev server port behind each name it serves. */
+export interface DevProxy {
+  ports: readonly number[];
+  routes: readonly { hostname: string; port: number }[];
 }
 
 const DEFAULT_PORT: Readonly<Record<string, number>> = { 'http:': 80, 'https:': 443 };
 
+/** portless keeps its route table here: `$PORTLESS_STATE_DIR`, else `~/.portless`. */
+const PORTLESS_STATE_DIR_ENV = 'PORTLESS_STATE_DIR';
+const PORTLESS_STATE_DIR = '.portless';
+const PORTLESS_ROUTES_FILE = 'routes.json';
+const PORTLESS_PORT_FILE = 'proxy.port';
+
+const PortlessRoutesSchema = z.array(
+  z.object({ hostname: z.string(), port: z.number().int() }).passthrough(),
+);
+
+/** A file's text, or undefined when it cannot be read. */
+function readOrUndefined(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    // Missing or unreadable: not there for this purpose.
+    return undefined;
+  }
+}
+
+/** The portless proxy on this machine, read from its state folder. Undefined when none runs. */
+function readPortless(): DevProxy | undefined {
+  const dir = process.env[PORTLESS_STATE_DIR_ENV] ?? join(homedir(), PORTLESS_STATE_DIR);
+  const port = Number(readOrUndefined(join(dir, PORTLESS_PORT_FILE))?.trim());
+  if (!Number.isInteger(port)) return undefined;
+  let routes: DevProxy['routes'] = [];
+  try {
+    const parsed = PortlessRoutesSchema.safeParse(
+      JSON.parse(readOrUndefined(join(dir, PORTLESS_ROUTES_FILE)) ?? '[]'),
+    );
+    if (parsed.success) routes = parsed.data;
+  } catch {
+    // A table being rewritten reads as empty: the page stays unplaced, never placed wrong.
+  }
+  return { ports: [port], routes };
+}
+
 const liveIo: ServingDirectoryIo = {
   devServers: () => readDevServers(reticleStateHome()),
   listenerCwd: (port) => findListenerCwd(port, captureLookup),
+  devProxy: readPortless,
 };
 
 /**
@@ -42,7 +92,8 @@ const liveIo: ServingDirectoryIo = {
  * Two observations, exact one first. A dev server whose plugin announced this port names its own
  * root and works on every platform. Otherwise the process listening on the port is asked for its
  * working directory, which covers frameworks with no announcing plugin (Next.js) wherever `lsof`
- * runs. Loopback only: a remote page's port says nothing about any process on this machine.
+ * runs. Behind a dev proxy, the proxy's route table first names the dev server's own port. Loopback
+ * only: a remote page's port says nothing about any process on this machine.
  */
 export function servingDirectoryOf(
   origin: string,
@@ -58,8 +109,14 @@ export function servingDirectoryOf(
   // Exact first: a dev proxy serves every worktree on one port, under the name it announced.
   const byUrl = io.devServers().find((entry) => originOf(entry.url) === url.origin);
   if (byUrl !== undefined) return byUrl.root;
-  const port = '' === url.port ? DEFAULT_PORT[url.protocol] : Number(url.port);
-  if (port === undefined) return undefined;
+  const pagePort = '' === url.port ? DEFAULT_PORT[url.protocol] : Number(url.port);
+  if (pagePort === undefined) return undefined;
+  // Behind a dev proxy the page's port is the proxy's, and `lsof` on it names the proxy's folder.
+  // The proxy's route table names the dev server's own port.
+  const proxy = isLocalhostSubdomain(url.hostname) ? io.devProxy?.() : undefined;
+  const route = proxy?.routes.find((r) => r.hostname === url.hostname.toLowerCase());
+  if (route === undefined && true === proxy?.ports.includes(pagePort)) return undefined;
+  const port = route?.port ?? pagePort;
   const announced = io.devServers().find((entry) => entry.port === port);
   if (announced !== undefined) return announced.root;
   return io.listenerCwd(port) ?? undefined;

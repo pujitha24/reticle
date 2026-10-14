@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { createRequire } from 'node:module';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ const {
   readPairingToken,
   discoverDaemonUrl,
   knowsAllowedDevOrigins,
+  announceDevServer,
 } = require('./index.cjs');
 
 const TOKEN_ENV = 'RETICLE_PAIRING_TOKEN_DIR';
@@ -527,5 +528,72 @@ describe('the dev signal under a production NODE_ENV', () => {
     process.env.NODE_ENV = 'production';
     delete process.env.NEXT_PRIVATE_WORKER;
     expect(printed()).toBe('');
+  });
+});
+
+describe('a Next app in a git worktree', () => {
+  /** @type {string[]} */
+  const dirs = [];
+  const temp = (prefix) => {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    dirs.push(dir);
+    return dir;
+  };
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  /**
+   * `.reticle.json` is often git-ignored, so `git worktree add` does not copy it. The worktree read
+   * no port and dialled the default one, while the project's daemon ran on its own port.
+   */
+  it('reads the main checkout’s .reticle.json when the worktree has none', () => {
+    const repo = temp('reticle-next-repo-');
+    const main = join(repo, 'main');
+    const wt = join(repo, 'wt');
+    mkdirSync(join(main, '.git', 'worktrees', 'wt'), { recursive: true });
+    mkdirSync(join(main, 'apps', 'web'), { recursive: true });
+    mkdirSync(join(wt, 'apps', 'web'), { recursive: true });
+    writeFileSync(join(wt, '.git'), `gitdir: ${join(main, '.git', 'worktrees', 'wt')}\n`);
+    writeFileSync(
+      join(main, 'apps', 'web', '.reticle.json'),
+      JSON.stringify({ projectId: 'web-1a2b', port: 14512 }),
+    );
+    expect(
+      discoverDaemonUrl(join(wt, 'apps', 'web'), temp('reticle-next-home-'), () => true, {}),
+    ).toBe('ws://localhost:14512/reticle');
+  });
+
+  /**
+   * Next has no plugin that says where it serves from. Behind a dev proxy, or on a platform with no
+   * `lsof`, the daemon could not tell which worktree served a tab.
+   */
+  it('announces the dev server, under the proxy URL when one serves it', async () => {
+    const { devServerRegistryFileName, DevServerEntrySchema } = await import('@reticlehq/core');
+    const home = temp('reticle-next-state-');
+    const root = temp('reticle-next-app-');
+    const withdraw = announceDevServer(
+      { PORT: '3001', PORTLESS_URL: 'http://feat-x.app.localhost:1355' },
+      root,
+      home,
+      'web-1a2b',
+    );
+    const file = join(home, devServerRegistryFileName(3001));
+    const entry = DevServerEntrySchema.parse(JSON.parse(readFileSync(file, 'utf8')));
+    expect(entry).toMatchObject({
+      port: 3001,
+      pid: process.pid,
+      root,
+      url: 'http://feat-x.app.localhost:1355',
+      projectId: 'web-1a2b',
+    });
+    withdraw();
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it('announces nothing before Next has a port', () => {
+    const home = temp('reticle-next-state-');
+    announceDevServer({}, temp('reticle-next-app-'), home, undefined)();
+    expect(require('node:fs').readdirSync(home)).toEqual([]);
   });
 });

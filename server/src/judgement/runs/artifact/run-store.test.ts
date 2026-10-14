@@ -63,6 +63,20 @@ describe('RunStore — temp-dir filesystem, never touches the repo', () => {
     expect(read.ok && read.run.project.branch).toBe('feat/refunds');
   });
 
+  /**
+   * A run that matched no project is kept in `~/.reticle/unmatched/<id>`. When the home folder is a
+   * git repository (dotfiles), the walk up found it, and the run named the dotfiles branch.
+   */
+  it('takes no branch from a folder inside Reticle’s own storage', async () => {
+    const home = join(root, '..');
+    await mkdir(join(home, '.git'), { recursive: true });
+    await writeFile(join(home, '.git', 'HEAD'), 'ref: refs/heads/dotfiles\n');
+    const unmatched = new RunStore(fs, join(home, '.reticle', 'unmatched', 'app-1a2b'));
+    await unmatched.write(make('unmatched', 1));
+    const read = await unmatched.read(asRunId('unmatched'));
+    expect(read.ok && read.run.project).not.toHaveProperty('branch');
+  });
+
   it('writes no branch outside git', async () => {
     await store.write(make('no-git', 1));
     const read = await store.read(asRunId('no-git'));

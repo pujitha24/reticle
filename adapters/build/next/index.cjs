@@ -33,6 +33,20 @@ const DAEMON_ENTRY_SUFFIX = '.json';
 // ESM/TS dependency on core, so the values are duplicated here the way the constants above are — and
 // pinned to core's by test, because a URL that drifts produces a silent no-connect rather than an
 // error anybody sees.
+// Mirrors core's devServerRegistryFileName: <state>/devserver-<port>.json, the file the Vite plugin
+// writes. The daemon reads it to learn which folder serves a page. Pinned to core's by test.
+const DEV_SERVER_PREFIX = 'devserver-';
+const DEV_SERVER_SUFFIX = '.json';
+/** Set by Next when its server listens: the port, and the URL it serves on. */
+const NEXT_PORT_ENV = 'PORT';
+const NEXT_ORIGIN_ENV = '__NEXT_PRIVATE_ORIGIN';
+/** Set by a dev proxy (portless) to the URL the page is served on. */
+const DEV_PROXY_URL_ENV = 'PORTLESS_URL';
+// Mirrors core's checkoutOf: a linked worktree's `.git` is a file, `gitdir: <main>/.git/worktrees/<name>`.
+const GIT_DIR_NAME = '.git';
+const GITDIR_PREFIX = /^gitdir:\s*(.+)$/m;
+const WORKTREES_SEGMENT = 'worktrees';
+const JSON_INDENT = 2;
 const RETICLE_CLIENT_HOST = 'localhost';
 const RETICLE_WS_PATH = '/reticle';
 
@@ -144,19 +158,122 @@ function discoverDaemonUrl(
     const port = Number(requested);
     if (Number.isInteger(port) && port > 0 && port <= MAX_TCP_PORT) return bridgeUrl(port);
   }
-  let projectId;
-  let configuredPort;
-  try {
-    const parsed = JSON.parse(fs.readFileSync(path.join(cwd, RETICLE_CONFIG_FILE), 'utf8'));
-    projectId = typeof parsed?.projectId === 'string' ? parsed.projectId : undefined;
-    const port = parsed?.port;
-    configuredPort = Number.isInteger(port) && port > 0 && port <= MAX_TCP_PORT ? port : undefined;
-  } catch {
-    return undefined; // no .reticle.json: this project has not been through `reticle init`
-  }
+  const parsed = readReticleConfig(cwd);
+  // No .reticle.json: this project has not been through `reticle init`.
+  if (parsed === undefined) return undefined;
+  const projectId = typeof parsed?.projectId === 'string' ? parsed.projectId : undefined;
+  const declared = parsed?.port;
+  const configuredPort =
+    Number.isInteger(declared) && declared > 0 && declared <= MAX_TCP_PORT ? declared : undefined;
   const discovered = discoverRegisteredPort(projectId, home, alive, configuredPort);
   const port = discovered ?? configuredPort;
   return port === undefined ? undefined : bridgeUrl(port);
+}
+
+/**
+ * The project's `.reticle.json`, parsed, or undefined when there is none. A git worktree reads the
+ * main checkout's copy when it has none of its own: the file is often git-ignored, so
+ * `git worktree add` does not copy it, and the worktree then dialled the default port.
+ * @param {string} cwd
+ */
+function readReticleConfig(cwd) {
+  for (const dir of [cwd, mainCheckoutTwin(cwd)]) {
+    if (dir === undefined) continue;
+    try {
+      return JSON.parse(fs.readFileSync(path.join(dir, RETICLE_CONFIG_FILE), 'utf8'));
+    } catch {
+      // Missing or unreadable here: try the next place.
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The same folder in the main checkout when `dir` is in a linked git worktree, else undefined.
+ * Mirrors core's mainCheckoutTwin.
+ * @param {string} dir
+ * @returns {string | undefined}
+ */
+function mainCheckoutTwin(dir) {
+  let current = path.resolve(dir);
+  for (;;) {
+    const dotGit = path.join(current, GIT_DIR_NAME);
+    let text;
+    try {
+      text = fs.readFileSync(dotGit, 'utf8');
+    } catch (error) {
+      // A directory is the main checkout's own `.git`: nothing to fall back to.
+      if (error?.code === 'EISDIR') return undefined;
+    }
+    if (text !== undefined) {
+      const match = GITDIR_PREFIX.exec(text);
+      if (match === null) return undefined;
+      const parts = path.resolve(current, match[1].trim()).split(path.sep);
+      const isWorktree =
+        WORKTREES_SEGMENT === parts[parts.length - 2] && GIT_DIR_NAME === parts[parts.length - 3];
+      if (!isWorktree) return undefined;
+      return path.join(
+        parts.slice(0, -3).join(path.sep),
+        path.relative(current, path.resolve(dir)),
+      );
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
+/** The files this process announced, so a config evaluated twice registers one cleanup. */
+const announced = new Set();
+
+/**
+ * Say where this dev server serves from, as the Vite plugin does: `<state>/devserver-<port>.json`.
+ * The daemon reads it to learn which git worktree served a page, also behind a dev proxy and on a
+ * platform with no `lsof`. Nothing before Next listens: it sets `PORT` then. Returns the withdraw.
+ * @param {Record<string, string | undefined>} env
+ * @param {string} root
+ * @param {string} home
+ * @param {string | undefined} projectId
+ * @returns {() => void}
+ */
+function announceDevServer(
+  env = process.env,
+  root = process.cwd(),
+  home = reticleHomeDir(STATE_DIR_ENV),
+  projectId = undefined,
+) {
+  const port = Number(env[NEXT_PORT_ENV]);
+  if (!Number.isInteger(port) || port <= 0 || port > MAX_TCP_PORT) return () => {};
+  const file = path.join(home, `${DEV_SERVER_PREFIX}${String(port)}${DEV_SERVER_SUFFIX}`);
+  const url = env[DEV_PROXY_URL_ENV] || env[NEXT_ORIGIN_ENV] || `http://localhost:${String(port)}/`;
+  const sdkVersion = sdkPackageVersion();
+  const entry = {
+    port,
+    pid: process.pid,
+    root,
+    url,
+    ...(typeof sdkVersion === 'string' && sdkVersion.length > 0 ? { sdkVersion } : {}),
+    startedAt: Date.now(),
+    ...(projectId === undefined ? {} : { projectId }),
+  };
+  try {
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify(entry, null, JSON_INDENT)}\n`);
+  } catch {
+    // No home directory, a read-only filesystem, a sandbox. The app still serves.
+    return () => {};
+  }
+  const withdraw = () => {
+    announced.delete(file);
+    try {
+      fs.rmSync(file, { force: true });
+    } catch {
+      // Already gone. The daemon's liveness check covers what we cannot remove.
+    }
+  };
+  if (!announced.has(file)) process.once('exit', withdraw);
+  announced.add(file);
+  return withdraw;
 }
 
 /**
@@ -425,6 +542,13 @@ function withReticle(nextConfig = {}, options = {}) {
   const userWebpack = nextConfig.webpack;
   const token = readPairingToken();
   const daemonUrl = discoverDaemonUrl();
+  const projectId = readReticleConfig(process.cwd())?.projectId;
+  announceDevServer(
+    process.env,
+    process.cwd(),
+    reticleHomeDir(STATE_DIR_ENV),
+    typeof projectId === 'string' ? projectId : undefined,
+  );
   const allowedDevOrigins = devOrigins(nextConfig.allowedDevOrigins);
   return {
     ...nextConfig,
@@ -473,4 +597,10 @@ function withReticle(nextConfig = {}, options = {}) {
   };
 }
 
-module.exports = { withReticle, readPairingToken, discoverDaemonUrl, knowsAllowedDevOrigins };
+module.exports = {
+  withReticle,
+  readPairingToken,
+  discoverDaemonUrl,
+  knowsAllowedDevOrigins,
+  announceDevServer,
+};

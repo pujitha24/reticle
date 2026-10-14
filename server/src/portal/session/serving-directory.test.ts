@@ -54,6 +54,39 @@ describe('servingDirectoryOf', () => {
     expect(dir).toBe(CLONE);
   });
 
+  /**
+   * A dev server with no announcing plugin (Next.js) behind portless. The page's port is the proxy's,
+   * and `lsof` on it gave the proxy's own folder, so every such tab was placed in one checkout.
+   * portless's route table names the port of the dev server behind each name.
+   */
+  it('follows a dev proxy route to the dev server behind it', () => {
+    const ports: number[] = [];
+    const dir = servingDirectoryOf('http://feat-x.app.localhost:1355', {
+      devServers: () => [],
+      listenerCwd: (port) => {
+        ports.push(port);
+        return 4102 === port ? CLONE : MAIN;
+      },
+      devProxy: () => ({
+        ports: [1355],
+        routes: [{ hostname: 'feat-x.app.localhost', port: 4102 }],
+      }),
+    });
+
+    expect(dir).toBe(CLONE);
+    expect(ports).toEqual([4102]);
+  });
+
+  it('places no page on the proxy port that no route names', () => {
+    const dir = servingDirectoryOf('http://gone.app.localhost:1355', {
+      devServers: () => [],
+      listenerCwd: () => MAIN,
+      devProxy: () => ({ ports: [1355], routes: [] }),
+    });
+
+    expect(dir).toBeUndefined();
+  });
+
   it('falls back to the working directory of whatever listens on the port', () => {
     const ports: number[] = [];
     const dir = servingDirectoryOf('http://127.0.0.1:3001', {
