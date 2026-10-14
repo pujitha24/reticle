@@ -8,7 +8,12 @@
  * which `memory/project` has no business knowing. The resolver takes the answer as an injected
  * function; the composition roots pass this one.
  */
-import { type Checkout, type DevServerEntry, isLoopbackHostname } from '@reticlehq/core';
+import {
+  type Checkout,
+  type DevServerEntry,
+  isLocalhostSubdomain,
+  isLoopbackHostname,
+} from '@reticlehq/core';
 import { captureLookup, findListenerCwd } from '@/command/cli/ports/port-holder.js';
 import { reticleStateHome } from '@/command/daemon/daemon.js';
 import { readDevServers } from '@/command/daemon/dev-servers.js';
@@ -49,7 +54,7 @@ export function servingDirectoryOf(
   } catch {
     return undefined;
   }
-  if (!isLoopbackHostname(url.hostname)) return undefined;
+  if (!isLoopbackHostname(url.hostname) && !isLocalhostSubdomain(url.hostname)) return undefined;
   // Exact first: a dev proxy serves every worktree on one port, under the name it announced.
   const byUrl = io.devServers().find((entry) => originOf(entry.url) === url.origin);
   if (byUrl !== undefined) return byUrl.root;

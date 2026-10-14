@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutOf, mainCheckoutTwin } from './checkout.js';
+import { checkoutOf, mainCheckoutTwin, samePath } from './checkout.js';
 
 /** A fake filesystem: path → contents. A missing path reads as undefined, like a missing file. */
 const fs =
@@ -126,5 +126,22 @@ describe('mainCheckoutTwin', () => {
   it('is undefined in the main checkout itself, and outside git', () => {
     expect(mainCheckoutTwin('/repo/apps/web/.reticle', read)).toBeUndefined();
     expect(mainCheckoutTwin('/tmp/x/.reticle', read)).toBeUndefined();
+  });
+});
+
+describe('samePath', () => {
+  /**
+   * Windows paths ignore case, and Vite writes them with forward slashes. The agent's proxy reads its
+   * folder as `c:\wt\a` while Vite announced `C:/wt/a`, so its own tab read as another checkout.
+   */
+  it('matches a Windows path written with another case or another separator', () => {
+    expect(samePath('c:\\wt\\a', 'C:/wt/a')).toBe(true);
+    expect(samePath('C:\\Repo\\.git', 'c:\\repo\\.git')).toBe(true);
+    expect(samePath('C:\\wt\\a', 'C:\\wt\\b')).toBe(false);
+  });
+
+  it('keeps POSIX paths exact', () => {
+    expect(samePath('/wt/a', '/wt/a')).toBe(true);
+    expect(samePath('/wt/a', '/WT/a')).toBe(false);
   });
 });

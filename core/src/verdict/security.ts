@@ -60,16 +60,13 @@ const IPV4_OCTET_COUNT = 4;
 const IPV4_OCTET_MAX = 255;
 
 /**
- * True only for loopback hosts: literal addresses, `localhost`, and names under `.localhost`. Never a
- * lookalike DNS name such as 127.example.com or localhost.example.
+ * True only for literal loopback hosts and `localhost`, never a lookalike DNS name such as
+ * 127.example.com. Names under `.localhost` are not included: this is the guard against DNS
+ * rebinding, and a browser that sends those names to DNS lets a hostile network answer them.
  */
 export function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (LOOPBACK_HOSTNAMES.includes(normalized)) return true;
-  // RFC 6761: every name under `.localhost` is loopback, and nobody can register one.
-  if (normalized.endsWith(LOCALHOST_SUFFIX) && normalized.length > LOCALHOST_SUFFIX.length) {
-    return !normalized.startsWith('.');
-  }
   const octets = normalized.split('.');
   return (
     IPV4_OCTET_COUNT === octets.length &&
@@ -83,18 +80,25 @@ export function isLoopbackHostname(hostname: string): boolean {
 }
 
 /**
+ * True for a name under `.localhost`, such as the `<branch>.<app>.localhost` a dev proxy serves for
+ * each git worktree. RFC 6761 reserves these names for loopback, and browsers resolve them locally.
+ */
+export function isLocalhostSubdomain(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return (
+    normalized.endsWith(LOCALHOST_SUFFIX) &&
+    normalized.length > LOCALHOST_SUFFIX.length &&
+    !normalized.startsWith('.')
+  );
+}
+
+/**
  * Page protocols that mean "this document IS a local desktop app", not a website. A packaged
  * Electron renderer loads over `file:` (or a registered `app:` protocol); a Tauri webview loads over
  * `tauri:` on macOS/Linux. None of these can be reached by a remote attacker — there is no network
  * origin to serve them from — so a page on one is as local as `http://localhost`.
  */
 const LOCAL_APP_PROTOCOLS: readonly string[] = ['file:', 'app:', 'tauri:'];
-
-/**
- * The hostname Tauri v2 uses on Windows (and Android), where the webview needs a real http origin.
- * `.localhost` is reserved for loopback by RFC 6761, so this can never resolve to a remote host.
- */
-const TAURI_HTTP_HOSTNAME = 'tauri.localhost';
 
 /**
  * True when the page is local: an ordinary loopback document, or a desktop webview.
@@ -104,9 +108,9 @@ const TAURI_HTTP_HOSTNAME = 'tauri.localhost';
  * remote is what made Reticle refuse to start inside a packaged Electron or Tauri app.
  */
 export function isLocalPage(protocol: string, hostname: string): boolean {
-  if (isLoopbackHostname(hostname)) return true;
-  if (LOCAL_APP_PROTOCOLS.includes(protocol.toLowerCase())) return true;
-  return hostname.toLowerCase() === TAURI_HTTP_HOSTNAME;
+  // `isLocalhostSubdomain` also covers `tauri.localhost`, the http origin Tauri v2 uses on Windows.
+  if (isLoopbackHostname(hostname) || isLocalhostSubdomain(hostname)) return true;
+  return LOCAL_APP_PROTOCOLS.includes(protocol.toLowerCase());
 }
 
 /**

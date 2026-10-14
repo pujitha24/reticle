@@ -64,6 +64,8 @@ describe('isLoopbackHost', () => {
   it('rejects a non-loopback Host (DNS rebinding) and a missing Host', () => {
     expect(isLoopbackHost('evil.com')).toBe(false);
     expect(isLoopbackHost('evil.com:9000')).toBe(false);
+    // A browser that sends `.localhost` names to DNS can be rebound through one.
+    expect(isLoopbackHost('evil.localhost:4400')).toBe(false);
     expect(isLoopbackHost('127.0.0.1.evil.com')).toBe(false);
     expect(isLoopbackHost(undefined)).toBe(false);
   });

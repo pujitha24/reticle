@@ -5,6 +5,7 @@ import {
   ReticleDir,
   fnv1a,
   projectCandidates,
+  samePath,
   type Checkout,
   type ProjectCandidate,
   type ProjectId,
@@ -135,7 +136,7 @@ export function rebaseIntoCheckout(
   to: Pick<Checkout, 'root' | 'commonDir'> | undefined,
 ): string {
   if (from === undefined || to === undefined) return directory;
-  if (from.commonDir !== to.commonDir || from.root === to.root) return directory;
+  if (!samePath(from.commonDir, to.commonDir) || samePath(from.root, to.root)) return directory;
   const rel = relative(from.root, directory);
   if ('..' === rel || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return directory;
   return join(to.root, rel);

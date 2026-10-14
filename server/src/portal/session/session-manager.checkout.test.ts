@@ -104,4 +104,23 @@ describe('scopeToCallerCheckout', () => {
     const tabs = [tab('s-b', 'http://localhost:5175/')];
     expect(scopeToCallerCheckout(tabs, other, checkoutOfTab)).toEqual({ sessions: tabs });
   });
+
+  /** The proxy reads `c:\\…` from its shell. Vite announces `C:/…`. Git writes the gitdir as `C:/…`. */
+  it('keeps the agent’s own tab on Windows when the case and separators differ', () => {
+    const wtA = (root: string, commonDir: string): Checkout => ({
+      root,
+      mainRoot: 'C:/repo',
+      commonDir,
+      linked: true,
+    });
+    const tabs = [tab('s-a', 'http://localhost:5174/'), tab('s-b', 'http://localhost:5175/')];
+    const served: Record<string, Checkout> = {
+      'http://localhost:5174/': wtA('C:/wt/a', 'C:/repo/.git'),
+      'http://localhost:5175/': wtA('C:/wt/b', 'C:/repo/.git'),
+    };
+    const caller = wtA('c:\\wt\\a', 'C:\\repo\\.git');
+    expect(scopeToCallerCheckout(tabs, caller, (t) => served[t.url])).toEqual({
+      sessions: [tabs[0]],
+    });
+  });
 });

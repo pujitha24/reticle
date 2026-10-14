@@ -1,4 +1,4 @@
-import { NO_SESSION_CONNECTED_ERROR, type Checkout } from '@reticlehq/core';
+import { NO_SESSION_CONNECTED_ERROR, samePath, type Checkout } from '@reticlehq/core';
 import { notePendingNoSessionReason } from '@/telemetry/tool-refused.js';
 import type { NoSessionReason } from '@reticlehq/core/telemetry';
 import {
@@ -789,9 +789,9 @@ export function scopeToCallerCheckout<S extends Tab>(
 ): CheckoutScope<S> {
   if (caller === undefined) return { sessions: [...sessions] };
   const placed = sessions.map((session) => ({ session, checkout: checkoutOfTab(session) }));
-  const mine = placed.filter((p) => p.checkout?.root === caller.root).map((p) => p.session);
+  const mine = placed.filter((p) => isSame(p.checkout?.root, caller.root)).map((p) => p.session);
   if (mine.length > 0) return { sessions: mine };
-  const siblings = placed.filter((p) => p.checkout?.commonDir === caller.commonDir);
+  const siblings = placed.filter((p) => isSame(p.checkout?.commonDir, caller.commonDir));
   if (siblings.length !== placed.length) {
     return { sessions: placed.filter((p) => !siblings.includes(p)).map((p) => p.session) };
   }
@@ -808,6 +808,8 @@ export function scopeToCallerCheckout<S extends Tab>(
       'on purpose.',
   };
 }
+
+const isSame = (a: string | undefined, b: string): boolean => a !== undefined && samePath(a, b);
 
 /** `/wt/a (branch feat/a)`, or the folder alone on a detached HEAD. */
 export function describeCheckout(checkout: Checkout | undefined): string {

@@ -9,6 +9,8 @@ import { REDACTED_FILL, SECRET_NAME_ARG, secretEnvKey } from './fields/flow-secr
 export { REDACTED_FILL, secretEnvKey } from './fields/flow-secret-field.js';
 import { safeProjectId, type FlowResult } from './flow-result.js';
 import { changeInPlace } from './narrow-write.js';
+import { dirname } from 'node:path';
+import { gitTracks } from '@/machine/git-tracks.js';
 export type { FlowResult } from './flow-result.js';
 import {
   AnchorKind,
@@ -344,8 +346,10 @@ export class FlowStore {
    * waited for the timer, and a daemon that exited first never sent it.
    */
   /**
-   * The main checkout's flows, read-only, when this store sits in a linked git worktree. A flow
-   * saved there and not yet committed is still replayed here. Writes never go to it.
+   * The main checkout's flows, read-only, when this store sits in a linked git worktree and git
+   * ignores `.reticle/`. A flow saved there is then still replayed here. Writes never go to it.
+   * When git tracks `.reticle/`, the worktree already has every committed flow, and reading the
+   * main checkout brought back a flow that the branch deleted.
    */
   readonly #main: FlowStore | undefined;
 
@@ -356,7 +360,10 @@ export class FlowStore {
     this.#onWrote = opts.onWrote;
     const twin = mainCheckoutTwin(root, readTextOrUndefined);
     // The main checkout has no twin of its own, so this never nests deeper than one level.
-    this.#main = twin === undefined ? undefined : new FlowStore(fs, twin, clock);
+    this.#main =
+      twin === undefined || gitTracks(reticleDirPaths(root).flows)
+        ? undefined
+        : new FlowStore(fs, twin, clock);
   }
 
   /**
@@ -578,8 +585,13 @@ export class FlowStore {
         load: (n, p) => this.load(n, p),
         // Branded at the boundary: the port speaks strings, the store speaks FlowName, and the
         // name has already passed isValidFlowName inside changeInPlace.
-        resolvePath: (n, p) => this.#resolveReadPath(asFlowName(n), p),
-        write: (path, contents) => this.#fs.writeFile(path, contents),
+        // A flow read from the main checkout is changed in a copy in this worktree.
+        resolvePath: async (n, p) =>
+          (await this.#resolveReadPath(asFlowName(n), p)) ?? flowPath(this.#root, asFlowName(n), p),
+        write: async (path, contents) => {
+          await this.#fs.mkdir(dirname(path));
+          await this.#fs.writeFile(path, contents);
+        },
         serialize: (flow) => this.#serialize(flow),
         readRaw: (path) => this.#fs.readFile(path),
       },

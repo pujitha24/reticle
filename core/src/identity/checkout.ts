@@ -33,6 +33,8 @@ const GITDIR_PREFIX = 'gitdir:';
 const BRANCH_PREFIX = 'ref: refs/heads/';
 const WORKTREES_SEGMENT = 'worktrees';
 const GIT_DIR_NAME = '.git';
+/** A path that starts with a drive letter. */
+const WINDOWS_PATH = /^[A-Za-z]:[\\/]/;
 
 export function checkoutOf(
   dir: string,
@@ -83,6 +85,16 @@ export function mainCheckoutTwin(
   const checkout = checkoutOf(path, readFile);
   if (checkout === undefined || checkout.root === checkout.mainRoot) return undefined;
   return `${checkout.mainRoot}${path.slice(checkout.root.length)}`;
+}
+
+/**
+ * True when two paths that `checkoutOf` returned name one directory. A Windows path ignores case, and
+ * the same folder arrives as `C:\wt\a` from a shell and as `C:/wt/a` from Vite and git.
+ */
+export function samePath(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (!WINDOWS_PATH.test(a) || !WINDOWS_PATH.test(b)) return false;
+  return a.replaceAll('\\', '/').toLowerCase() === b.replaceAll('\\', '/').toLowerCase();
 }
 
 function linkedCheckout(
