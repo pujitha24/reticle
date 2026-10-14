@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { join, sep } from 'node:path';
-import type { DevServerEntry } from '@reticlehq/core';
-import { servingDirectoryOf } from './serving-directory.js';
+import type { Checkout, DevServerEntry } from '@reticlehq/core';
+import { liveCheckoutSource, servingDirectoryOf } from './serving-directory.js';
 
 const MAIN = join(sep, 'repo', 'main');
 const CLONE = join(sep, 'repo', 'clone');
@@ -98,5 +98,30 @@ describe('servingDirectoryOf', () => {
     expect(servingDirectoryOf('https://staging.example.com', io)).toBeUndefined();
     expect(servingDirectoryOf('not a url', io)).toBeUndefined();
     expect(consulted).toBe(false);
+  });
+});
+
+describe('liveCheckoutSource', () => {
+  const at = (root: string): Checkout => ({ root, mainRoot: MAIN, commonDir: MAIN, linked: true });
+
+  /**
+   * Worktree A's dev server stops and worktree B's starts on the same port. The page reloads, which is
+   * a new connection, and it now runs B's code. A cache by origin named it A's for 30 seconds, so the
+   * agent in A drove B's code and the agent in B was refused.
+   */
+  it('places each tab connection once, and a reloaded tab again', () => {
+    let served = at(MAIN);
+    let lookups = 0;
+    const source = liveCheckoutSource(() => {
+      lookups += 1;
+      return served;
+    });
+    const first = { id: 's', url: 'http://localhost:5173/' };
+
+    expect(source.ofTab(first)?.root).toBe(MAIN);
+    served = at(CLONE);
+    expect(source.ofTab(first)?.root).toBe(MAIN);
+    expect(source.ofTab({ id: 's', url: 'http://localhost:5173/' })?.root).toBe(CLONE);
+    expect(lookups).toBe(2);
   });
 });

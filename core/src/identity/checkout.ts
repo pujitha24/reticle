@@ -15,6 +15,12 @@ export interface Checkout {
   root: string;
   /** The top directory of the main checkout. Equals `root` when there is no other. */
   mainRoot: string;
+  /**
+   * The repository's own git directory, which every worktree of it shares (`git rev-parse
+   * --git-common-dir`). Two checkouts are worktrees of one repository when this is equal. A bare
+   * repository has worktrees but no main checkout, so `mainRoot` cannot tell them apart.
+   */
+  commonDir: string;
   /** The branch checked out. Absent on a detached HEAD. */
   branch?: string;
   /** True for a linked worktree (`git worktree add`). */
@@ -37,7 +43,15 @@ export function checkoutOf(
   for (let level = 0; level <= MAX_UP_LEVELS; level += 1) {
     const head = readFile(`${current}${sep}${GIT_DIR_NAME}${sep}HEAD`);
     if (head !== undefined) {
-      return withBranch({ root: current, mainRoot: current, linked: false }, head);
+      return withBranch(
+        {
+          root: current,
+          mainRoot: current,
+          commonDir: `${current}${sep}${GIT_DIR_NAME}`,
+          linked: false,
+        },
+        head,
+      );
     }
     const pointer = readFile(`${current}${sep}${GIT_DIR_NAME}`);
     if (pointer !== undefined && pointer.trim().startsWith(GITDIR_PREFIX)) {
@@ -82,13 +96,14 @@ function linkedCheckout(
   // `<main>/.git/worktrees/<name>`: a worktree. Anything else (`.git/modules/x`) is a submodule.
   const isWorktree = WORKTREES_SEGMENT === parts[parts.length - 2];
   const gitDirOfRepo = parts.slice(0, -2);
+  const commonDir = isWorktree ? gitDirOfRepo.join(sep) : absolute;
   // A bare repository has no main checkout to share; the worktree is its own main checkout.
   const mainRoot =
     isWorktree && GIT_DIR_NAME === gitDirOfRepo[gitDirOfRepo.length - 1]
       ? gitDirOfRepo.slice(0, -1).join(sep)
       : root;
   const head = readFile(`${absolute}${sep}HEAD`);
-  const checkout: Checkout = { root, mainRoot, linked: isWorktree };
+  const checkout: Checkout = { root, mainRoot, commonDir, linked: isWorktree };
   return head === undefined ? checkout : withBranch(checkout, head);
 }
 

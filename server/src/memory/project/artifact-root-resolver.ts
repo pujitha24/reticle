@@ -202,7 +202,7 @@ export interface ArtifactRootResolverDeps {
   /** The git checkout a directory is in. Defaults to reading `.git` on disk. */
   checkout?: (dir: string) => Checkout | undefined;
   /** Whether a repository has linked worktrees. Defaults to one directory read. */
-  hasWorktrees?: (mainRoot: string) => boolean;
+  hasWorktrees?: (commonDir: string) => boolean;
 }
 
 export function artifactRootResolver(
@@ -236,7 +236,7 @@ export function artifactRootResolver(
   const intoServingWorktree = (resolved: ArtifactRoot, origin: string): ArtifactRoot => {
     const project = dirname(resolved.root);
     const from = checkout(project);
-    if (from === undefined || !hasWorktrees(from.mainRoot)) return resolved;
+    if (from === undefined || !hasWorktrees(from.commonDir)) return resolved;
     const serving = servingOf(origin);
     const to = serving === undefined ? undefined : checkout(serving);
     const moved = rebaseIntoCheckout(project, from, to);

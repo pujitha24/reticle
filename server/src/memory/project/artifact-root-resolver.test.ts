@@ -226,8 +226,8 @@ describe('a project one checkout declares, served from a linked worktree', () =>
   const WT = join(sep, 'wt', 'feat-x');
   const checkouts = (dir: string) =>
     dir.startsWith(WT)
-      ? { root: WT, mainRoot: MAIN, branch: 'feat/x', linked: true }
-      : { root: MAIN, mainRoot: MAIN, linked: false };
+      ? { root: WT, mainRoot: MAIN, commonDir: join(MAIN, '.git'), branch: 'feat/x', linked: true }
+      : { root: MAIN, mainRoot: MAIN, commonDir: join(MAIN, '.git'), linked: false };
 
   it('writes into the worktree that served the page', () => {
     const resolved = artifactRootResolver(join(MAIN, ReticleDir.ROOT), {

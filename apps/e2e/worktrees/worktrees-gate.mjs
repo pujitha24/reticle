@@ -255,6 +255,20 @@ async function main() {
   console.log('\n— an explicit sessionId still reaches any tab');
   const explicit = await reached(tabs, () => agentA.call('reticle_look', { action: 'page', sessionId: 'tab-b' }));
   ok('agent in wt-a reached tab-b when it named it', 'tab-b' === explicit.ids.join(','), `reached [${explicit.ids}]`);
+
+  // wt-b's dev server stops and wt-a's starts on the same port. The page reloads, which is a new
+  // connection, and now runs wt-a's code. It must move to wt-a at once, not after a cache expires.
+  console.log('\n— a port that moves to another worktree moves with it');
+  tabB.close();
+  await sleep(SETTLE_MS);
+  announceDevServer(PORT_B, WT_A);
+  const reloaded = openTab('tab-b', PORT_B);
+  await reloaded.opened;
+  await sleep(SETTLE_MS);
+  const movedA = await reached([reloaded], () => agentA.call(...LOOK));
+  ok('agent in wt-a reached the reloaded tab', 'tab-b' === movedA.ids.join(','), `reached [${movedA.ids}]`);
+  const movedB = await reached([reloaded], () => agentB.call(...LOOK));
+  ok('agent in wt-b no longer reached it', 0 === movedB.ids.length, `reached [${movedB.ids}]`);
 }
 
 function cleanup() {

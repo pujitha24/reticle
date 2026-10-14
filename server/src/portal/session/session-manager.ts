@@ -21,8 +21,8 @@ import { isErrorDocument } from './session-info.js';
 export interface CheckoutSource {
   /** The git checkout of the agent making this call. */
   caller: () => Checkout | undefined;
-  /** The git checkout whose dev server served a tab's URL. */
-  ofUrl: (url: string) => Checkout | undefined;
+  /** The git checkout whose dev server served this tab connection. */
+  ofTab: (tab: Tab) => Checkout | undefined;
 }
 
 /**
@@ -323,11 +323,11 @@ export class SessionManager {
   list(): SessionInfo[] {
     // Only an agent whose repository has worktrees pays for the serving lookups.
     const worktreeOf =
-      this.#checkoutScope?.caller() === undefined ? undefined : this.#checkoutScope.ofUrl;
+      this.#checkoutScope?.caller() === undefined ? undefined : this.#checkoutScope.ofTab;
     return [...this.#sessions.values()].map((s) => {
       const info = s.info();
       const attachment = this.#attachment.of(s.id);
-      const served = worktreeOf?.(info.url);
+      const served = worktreeOf?.(s);
       return {
         ...info,
         ...(attachment === undefined ? {} : { attachment }),
@@ -652,7 +652,7 @@ export class SessionManager {
     const byCheckout =
       this.#checkoutScope === undefined
         ? { sessions: inProject }
-        : scopeToCallerCheckout(inProject, this.#checkoutScope.caller(), this.#checkoutScope.ofUrl);
+        : scopeToCallerCheckout(inProject, this.#checkoutScope.caller(), this.#checkoutScope.ofTab);
     if (byCheckout.refusal !== undefined) throw new Error(byCheckout.refusal);
     const all = byCheckout.sessions;
     if (0 === all.length) {
@@ -760,7 +760,7 @@ export class SessionManager {
   }
 }
 
-interface Tab {
+export interface Tab {
   id: string;
   url: string;
 }
@@ -779,23 +779,23 @@ export interface CheckoutScope<S> {
  * code agent A never touched. The agent's checkout comes from the directory its MCP proxy runs in;
  * a tab's checkout comes from the dev server that served it.
  *
- * Conservative: it narrows only on facts. A tab whose checkout cannot be read keeps today's answer.
+ * It narrows only on facts. A tab known to come from another worktree of the agent's repository is
+ * dropped. A tab whose checkout cannot be read stays, because it can be the agent's own.
  */
 export function scopeToCallerCheckout<S extends Tab>(
   sessions: readonly S[],
   caller: Checkout | undefined,
-  checkoutOfUrl: (url: string) => Checkout | undefined,
+  checkoutOfTab: (tab: S) => Checkout | undefined,
 ): CheckoutScope<S> {
   if (caller === undefined) return { sessions: [...sessions] };
-  const placed = sessions.map((session) => ({ session, checkout: checkoutOfUrl(session.url) }));
+  const placed = sessions.map((session) => ({ session, checkout: checkoutOfTab(session) }));
   const mine = placed.filter((p) => p.checkout?.root === caller.root).map((p) => p.session);
   if (mine.length > 0) return { sessions: mine };
-  const siblings = placed.filter(
-    (p) => p.checkout !== undefined && p.checkout.mainRoot === caller.mainRoot,
-  );
-  if (0 === siblings.length || siblings.length !== placed.length) {
-    return { sessions: [...sessions] };
+  const siblings = placed.filter((p) => p.checkout?.commonDir === caller.commonDir);
+  if (siblings.length !== placed.length) {
+    return { sessions: placed.filter((p) => !siblings.includes(p)).map((p) => p.session) };
   }
+  if (0 === siblings.length) return { sessions: [] };
   const listed = siblings
     .map((p) => `${describeCheckout(p.checkout)} (sessionId '${p.session.id}', ${p.session.url})`)
     .join(', ');

@@ -2,9 +2,28 @@ import { describe, expect, it } from 'vitest';
 import type { Checkout } from '@reticlehq/core';
 import { scopeToCallerCheckout } from './session-manager.js';
 
-const MAIN: Checkout = { root: '/repo', mainRoot: '/repo', branch: 'main', linked: false };
-const WT_A: Checkout = { root: '/wt/a', mainRoot: '/repo', branch: 'feat/a', linked: true };
-const WT_B: Checkout = { root: '/wt/b', mainRoot: '/repo', branch: 'feat/b', linked: true };
+const GIT = '/repo/.git';
+const MAIN: Checkout = {
+  root: '/repo',
+  mainRoot: '/repo',
+  commonDir: GIT,
+  branch: 'main',
+  linked: false,
+};
+const WT_A: Checkout = {
+  root: '/wt/a',
+  mainRoot: '/repo',
+  commonDir: GIT,
+  branch: 'feat/a',
+  linked: true,
+};
+const WT_B: Checkout = {
+  root: '/wt/b',
+  mainRoot: '/repo',
+  commonDir: GIT,
+  branch: 'feat/b',
+  linked: true,
+};
 
 const tab = (id: string, url: string) => ({ id, url });
 const servedBy: Record<string, Checkout> = {
@@ -12,16 +31,16 @@ const servedBy: Record<string, Checkout> = {
   'http://localhost:5174/': WT_A,
   'http://localhost:5175/': WT_B,
 };
-const checkoutOfUrl = (url: string): Checkout | undefined => servedBy[url];
+const checkoutOfTab = (t: { url: string }): Checkout | undefined => servedBy[t.url];
 
 describe('scopeToCallerCheckout', () => {
   /** Two agents, two worktrees, one app: each must land on its own tab, never the other's. */
   it('keeps only the tabs served from the agent’s own worktree', () => {
     const tabs = [tab('s-main', 'http://localhost:5173/'), tab('s-a', 'http://localhost:5174/')];
-    expect(scopeToCallerCheckout(tabs, WT_A, checkoutOfUrl).sessions.map((s) => s.id)).toEqual([
+    expect(scopeToCallerCheckout(tabs, WT_A, checkoutOfTab).sessions.map((s) => s.id)).toEqual([
       's-a',
     ]);
-    expect(scopeToCallerCheckout(tabs, MAIN, checkoutOfUrl).sessions.map((s) => s.id)).toEqual([
+    expect(scopeToCallerCheckout(tabs, MAIN, checkoutOfTab).sessions.map((s) => s.id)).toEqual([
       's-main',
     ]);
   });
@@ -31,7 +50,7 @@ describe('scopeToCallerCheckout', () => {
     const result = scopeToCallerCheckout(
       [tab('s-b', 'http://localhost:5175/')],
       WT_A,
-      checkoutOfUrl,
+      checkoutOfTab,
     );
     expect(result.sessions).toEqual([]);
     expect(result.refusal).toContain('/wt/b');
@@ -40,19 +59,49 @@ describe('scopeToCallerCheckout', () => {
     expect(result.refusal).toContain('/wt/a');
   });
 
-  it('keeps every tab when a tab’s checkout cannot be read', () => {
+  /**
+   * A tab nothing can place (no announcing plugin, no `lsof`) may be the agent's own. A tab known to
+   * come from another worktree never is: keeping it let freshness pick it over the unknown one.
+   */
+  it('drops the tabs of other worktrees and keeps the ones it cannot place', () => {
     const tabs = [tab('s-b', 'http://localhost:5175/'), tab('s-x', 'http://localhost:9999/')];
-    expect(scopeToCallerCheckout(tabs, WT_A, checkoutOfUrl)).toEqual({ sessions: tabs });
+    expect(scopeToCallerCheckout(tabs, WT_A, checkoutOfTab)).toEqual({ sessions: [tabs[1]] });
+  });
+
+  /** A bare clone has no main checkout, so its worktrees differ in mainRoot and share commonDir. */
+  it('scopes the worktrees of a bare repository', () => {
+    const bareA: Checkout = {
+      root: '/wt/a',
+      mainRoot: '/wt/a',
+      commonDir: '/app.git',
+      linked: true,
+    };
+    const bareB: Checkout = {
+      root: '/wt/b',
+      mainRoot: '/wt/b',
+      commonDir: '/app.git',
+      linked: true,
+    };
+    const tabA = tab('s-a', 'a');
+    const tabB = tab('s-b', 'b');
+    const of = (t: { url: string }) => ('a' === t.url ? bareA : bareB);
+    expect(scopeToCallerCheckout([tabA, tabB], bareA, of).sessions).toEqual([tabA]);
+    expect(scopeToCallerCheckout([tabB], bareA, of).refusal).toContain('/wt/b');
   });
 
   it('keeps every tab when the agent is outside git', () => {
     const tabs = [tab('s-b', 'http://localhost:5175/')];
-    expect(scopeToCallerCheckout(tabs, undefined, checkoutOfUrl)).toEqual({ sessions: tabs });
+    expect(scopeToCallerCheckout(tabs, undefined, checkoutOfTab)).toEqual({ sessions: tabs });
   });
 
   it('keeps every tab of a different repository', () => {
-    const other: Checkout = { root: '/elsewhere', mainRoot: '/elsewhere', linked: false };
+    const other: Checkout = {
+      root: '/elsewhere',
+      mainRoot: '/elsewhere',
+      commonDir: '/elsewhere/.git',
+      linked: false,
+    };
     const tabs = [tab('s-b', 'http://localhost:5175/')];
-    expect(scopeToCallerCheckout(tabs, other, checkoutOfUrl)).toEqual({ sessions: tabs });
+    expect(scopeToCallerCheckout(tabs, other, checkoutOfTab)).toEqual({ sessions: tabs });
   });
 });

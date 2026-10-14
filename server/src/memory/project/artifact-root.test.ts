@@ -535,8 +535,9 @@ describe('an unnameable project does not share a bucket with every other one', (
 });
 
 describe('rebaseIntoCheckout', () => {
-  const main = { root: join(sep, 'repo'), mainRoot: join(sep, 'repo'), linked: false };
-  const wt = { root: join(sep, 'wt', 'x'), mainRoot: join(sep, 'repo'), linked: true };
+  const git = join(sep, 'repo', '.git');
+  const main = { root: join(sep, 'repo'), commonDir: git };
+  const wt = { root: join(sep, 'wt', 'x'), commonDir: git };
   const app = join(sep, 'repo', 'apps', 'web');
 
   it('moves a project folder from the main checkout into the worktree that served the page', () => {
@@ -548,8 +549,16 @@ describe('rebaseIntoCheckout', () => {
   });
 
   it('keeps the folder when the two checkouts are different repositories', () => {
-    const other = { root: join(sep, 'b'), mainRoot: join(sep, 'b'), linked: false };
+    const other = { root: join(sep, 'b'), commonDir: join(sep, 'b', '.git') };
     expect(rebaseIntoCheckout(app, main, other)).toBe(app);
+  });
+
+  /** A bare clone has no main checkout: the project was found in one worktree, the page came from another. */
+  it('moves a project folder between two worktrees of a bare repository', () => {
+    const bare = join(sep, 'app.git');
+    const a = { root: join(sep, 'wt', 'a'), commonDir: bare };
+    const b = { root: join(sep, 'wt', 'b'), commonDir: bare };
+    expect(rebaseIntoCheckout(join(sep, 'wt', 'a', 'web'), a, b)).toBe(join(sep, 'wt', 'b', 'web'));
   });
 
   it('keeps the folder when either checkout is unknown', () => {

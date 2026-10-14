@@ -13,6 +13,7 @@ describe('checkoutOf', () => {
     expect(checkoutOf('/repo/apps/web', read)).toEqual({
       root: '/repo',
       mainRoot: '/repo',
+      commonDir: '/repo/.git',
       branch: 'main',
       linked: false,
     });
@@ -26,6 +27,7 @@ describe('checkoutOf', () => {
     expect(checkoutOf('/wt/feat-x/apps/web', read)).toEqual({
       root: '/wt/feat-x',
       mainRoot: '/repo',
+      commonDir: '/repo/.git',
       branch: 'feat/x',
       linked: true,
     });
@@ -39,6 +41,7 @@ describe('checkoutOf', () => {
     expect(checkoutOf('/repo/.claude/worktrees/a', read)).toMatchObject({
       root: '/repo/.claude/worktrees/a',
       mainRoot: '/repo',
+      commonDir: '/repo/.git',
       linked: true,
     });
   });
@@ -51,6 +54,7 @@ describe('checkoutOf', () => {
     expect(checkoutOf('C:\\wt\\b\\src', read)).toEqual({
       root: 'C:\\wt\\b',
       mainRoot: 'C:\\repo',
+      commonDir: 'C:\\repo\\.git',
       branch: 'b',
       linked: true,
     });
@@ -58,7 +62,12 @@ describe('checkoutOf', () => {
 
   it('gives no branch for a detached HEAD', () => {
     const read = fs({ '/repo/.git/HEAD': '4f1c0ffee\n' });
-    expect(checkoutOf('/repo', read)).toEqual({ root: '/repo', mainRoot: '/repo', linked: false });
+    expect(checkoutOf('/repo', read)).toEqual({
+      root: '/repo',
+      mainRoot: '/repo',
+      commonDir: '/repo/.git',
+      linked: false,
+    });
   });
 
   it('treats a worktree of a bare repository as its own main checkout', () => {
@@ -69,9 +78,20 @@ describe('checkoutOf', () => {
     expect(checkoutOf('/wt/c', read)).toEqual({
       root: '/wt/c',
       mainRoot: '/wt/c',
+      commonDir: '/repos/app.git',
       branch: 'c',
       linked: true,
     });
+  });
+
+  /** A bare clone with one worktree per branch is a common agent layout. Its worktrees are siblings. */
+  it('gives every worktree of a bare repository the same commonDir', () => {
+    const read = fs({
+      '/wt/a/.git': 'gitdir: /repos/app.git/worktrees/a',
+      '/wt/b/.git': 'gitdir: /repos/app.git/worktrees/b',
+    });
+    expect(checkoutOf('/wt/a', read)?.commonDir).toBe('/repos/app.git');
+    expect(checkoutOf('/wt/b', read)?.commonDir).toBe('/repos/app.git');
   });
 
   it('treats a submodule as its own checkout, not a worktree', () => {
@@ -82,6 +102,7 @@ describe('checkoutOf', () => {
     expect(checkoutOf('/repo/vendor/lib', read)).toEqual({
       root: '/repo/vendor/lib',
       mainRoot: '/repo/vendor/lib',
+      commonDir: '/repo/.git/modules/lib',
       branch: 'main',
       linked: false,
     });

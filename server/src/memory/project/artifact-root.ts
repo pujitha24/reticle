@@ -131,11 +131,11 @@ export function resolveArtifactRoot(query: ArtifactRootQuery): ArtifactRoot {
  */
 export function rebaseIntoCheckout(
   directory: string,
-  from: Pick<Checkout, 'root' | 'mainRoot'> | undefined,
-  to: Pick<Checkout, 'root' | 'mainRoot'> | undefined,
+  from: Pick<Checkout, 'root' | 'commonDir'> | undefined,
+  to: Pick<Checkout, 'root' | 'commonDir'> | undefined,
 ): string {
   if (from === undefined || to === undefined) return directory;
-  if (from.mainRoot !== to.mainRoot || from.root === to.root) return directory;
+  if (from.commonDir !== to.commonDir || from.root === to.root) return directory;
   const rel = relative(from.root, directory);
   if ('..' === rel || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return directory;
   return join(to.root, rel);

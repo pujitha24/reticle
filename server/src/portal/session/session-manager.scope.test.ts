@@ -316,9 +316,27 @@ describe('an unscoped call across two projects refuses instead of guessing', () 
  * agent's app, reported from the field.
  */
 describe('worktree-scoped resolve()', () => {
-  const MAIN = { root: '/repo', mainRoot: '/repo', branch: 'main', linked: false };
-  const WT_A = { root: '/wt/a', mainRoot: '/repo', branch: 'feat/a', linked: true };
-  const WT_B = { root: '/wt/b', mainRoot: '/repo', branch: 'feat/b', linked: true };
+  const MAIN = {
+    root: '/repo',
+    mainRoot: '/repo',
+    commonDir: '/repo/.git',
+    branch: 'main',
+    linked: false,
+  };
+  const WT_A = {
+    root: '/wt/a',
+    mainRoot: '/repo',
+    commonDir: '/repo/.git',
+    branch: 'feat/a',
+    linked: true,
+  };
+  const WT_B = {
+    root: '/wt/b',
+    mainRoot: '/repo',
+    commonDir: '/repo/.git',
+    branch: 'feat/b',
+    linked: true,
+  };
   const servedBy: Record<string, typeof MAIN> = {
     'http://localhost:5173/': MAIN,
     'http://localhost:5174/': WT_A,
@@ -327,7 +345,7 @@ describe('worktree-scoped resolve()', () => {
 
   it('resolves to the tab served from the calling agent’s worktree', async () => {
     let caller = WT_A;
-    bridge.sessions.setCheckoutScope({ caller: () => caller, ofUrl: (url) => servedBy[url] });
+    bridge.sessions.setCheckoutScope({ caller: () => caller, ofTab: (t) => servedBy[t.url] });
     // B is fresher, so freshness alone would pick it.
     await connect({ sessionId: 'tab-a', url: 'http://localhost:5174/', projectId: 'app' });
     await connect({ sessionId: 'tab-b', url: 'http://localhost:5175/', projectId: 'app' });
@@ -340,7 +358,7 @@ describe('worktree-scoped resolve()', () => {
 
   /** Work in a worktree is invisible unless the agent can see which tab runs which branch. */
   it('names the worktree and branch of each tab in the session list', async () => {
-    bridge.sessions.setCheckoutScope({ caller: () => WT_A, ofUrl: (url) => servedBy[url] });
+    bridge.sessions.setCheckoutScope({ caller: () => WT_A, ofTab: (t) => servedBy[t.url] });
     await connect({ sessionId: 'tab-main', url: 'http://localhost:5173/', projectId: 'app' });
     await connect({ sessionId: 'tab-b', url: 'http://localhost:5175/', projectId: 'app' });
     await waitForSessions(2);
@@ -351,7 +369,7 @@ describe('worktree-scoped resolve()', () => {
   });
 
   it('refuses another worktree’s only tab, and an explicit sessionId still reaches it', async () => {
-    bridge.sessions.setCheckoutScope({ caller: () => WT_A, ofUrl: (url) => servedBy[url] });
+    bridge.sessions.setCheckoutScope({ caller: () => WT_A, ofTab: (t) => servedBy[t.url] });
     await connect({ sessionId: 'tab-b', url: 'http://localhost:5175/', projectId: 'app' });
     await waitForSessions(1);
 

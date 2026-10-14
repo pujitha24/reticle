@@ -14,7 +14,7 @@ import { reticleStateHome } from '@/command/daemon/daemon.js';
 import { readDevServers } from '@/command/daemon/dev-servers.js';
 import { checkoutAt, hasLinkedWorktrees } from '@/command/cli/config/checkout.js';
 import { callingClientDirectory } from '@/hooks/client-directory.js';
-import { originOf, type CheckoutSource } from './session-manager.js';
+import { originOf, type CheckoutSource, type Tab } from './session-manager.js';
 
 /** Where `servingDirectoryOf` gets its two observations. Injected so a test needs no processes. */
 export interface ServingDirectoryIo {
@@ -60,34 +60,39 @@ export function servingDirectoryOf(
   return io.listenerCwd(port) ?? undefined;
 }
 
-/**
- * How long one origin's serving checkout is trusted.
- * ponytail: a dev server restarted in another worktree on the same port is named stale for up to
- * this long; invalidate on a new HELLO from that origin if that ever matters.
- */
-const SERVING_TTL_MS = 30_000;
+/** The checkout whose dev server serves `origin` right now, or undefined. */
+function checkoutServing(origin: string): Checkout | undefined {
+  const serving = servingDirectoryOf(origin);
+  return serving === undefined ? undefined : checkoutAt(serving);
+}
 
 /**
  * The live answers for a worktree-scoped resolve: the calling agent's checkout (from the directory
  * its MCP proxy runs in) and each tab's checkout (from the dev server that served it).
+ *
+ * A tab is placed once for each connection. A page that a different dev server serves has reloaded,
+ * and a reload is a new connection. A cache by origin and time named a port that moved to another
+ * worktree after the old one for its whole lifetime.
+ * ponytail: a lookup that failed stays failed for that connection; the tab then counts as unknown.
  */
-export function liveCheckoutSource(now: () => number = Date.now): CheckoutSource {
-  const cache = new Map<string, { at: number; checkout: Checkout | undefined }>();
+export function liveCheckoutSource(
+  placeOrigin: (origin: string) => Checkout | undefined = checkoutServing,
+): CheckoutSource {
+  const placed = new WeakMap<Tab, Checkout | undefined>();
   return {
     caller: () => {
       const dir = callingClientDirectory();
       const checkout = dir === undefined ? undefined : checkoutAt(dir);
       // A repository with no linked worktree has nothing to tell apart: skip the serving lookups.
-      return checkout !== undefined && hasLinkedWorktrees(checkout.mainRoot) ? checkout : undefined;
+      return checkout !== undefined && hasLinkedWorktrees(checkout.commonDir)
+        ? checkout
+        : undefined;
     },
-    ofUrl: (url) => {
-      const origin = originOf(url);
-      if (origin === undefined) return undefined;
-      const hit = cache.get(origin);
-      if (hit !== undefined && now() - hit.at < SERVING_TTL_MS) return hit.checkout;
-      const serving = servingDirectoryOf(origin);
-      const checkout = serving === undefined ? undefined : checkoutAt(serving);
-      cache.set(origin, { at: now(), checkout });
+    ofTab: (tab) => {
+      if (placed.has(tab)) return placed.get(tab);
+      const origin = originOf(tab.url);
+      const checkout = origin === undefined ? undefined : placeOrigin(origin);
+      placed.set(tab, checkout);
       return checkout;
     },
   };

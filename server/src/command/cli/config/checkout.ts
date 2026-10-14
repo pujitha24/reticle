@@ -20,10 +20,10 @@ export function checkoutAt(dir: string): Checkout | undefined {
   return checkoutOf(dir, readOrUndefined);
 }
 
-/** True when the repository at `mainRoot` has at least one linked worktree. One directory read. */
-export function hasLinkedWorktrees(mainRoot: string): boolean {
+/** True when the repository whose git directory is `commonDir` has a linked worktree. One read. */
+export function hasLinkedWorktrees(commonDir: string): boolean {
   try {
-    return readdirSync(join(mainRoot, '.git', 'worktrees')).length > 0;
+    return readdirSync(join(commonDir, 'worktrees')).length > 0;
   } catch {
     return false;
   }
