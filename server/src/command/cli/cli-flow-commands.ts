@@ -34,7 +34,7 @@ import {
   staleChanged,
   unexecutedChanged,
 } from '@/features/exhaust/ledger.js';
-import { gateDecision, passingFlowNames } from '@/language/flows/change/gate.js';
+import { gateDecision, latestFlowResults, passingFlowNames } from '@/language/flows/change/gate.js';
 import { FlakeStore } from '@/language/flows/stores/flake-store.js';
 import { AssertionTiersStore } from '@/language/flows/stores/assertion-tiers-store.js';
 import { detectDowngrades } from '@/judgement/outcome/assertion-integrity.js';
@@ -131,8 +131,8 @@ export async function handleGate(
     const changed = (await resolveChangedFiles(files, since, process.cwd())).files;
     const allFlows = await loadNamedFlows(fs, reticleRoot, readProjectId(process.cwd()));
     const affected = affectedSavedFlows(allFlows, changed).affected;
-    const latest = await new RunStore(fs, reticleRoot).latest();
-    const passing = passingFlowNames(latest?.flows ?? []);
+    const runs = await new RunStore(fs, reticleRoot).all();
+    const passing = passingFlowNames(latestFlowResults(runs));
     const flaky = await new FlakeStore(fs, reticleRoot).flakyFlows();
     // Anti-reward-hacking: diff each flow's CURRENT assertions against what it asserted the last
     // time it passed. A mustHold that dropped from a real consequence to a fakeable presence check is a

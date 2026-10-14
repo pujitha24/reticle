@@ -89,6 +89,20 @@ export function gateDecision(input: GateInput): GateResult {
 }
 
 /**
+ * The newest result of each flow, from any of `runs`. Not the newest run alone: a hand drive saves a
+ * run with no flow results when its session ends, and that run hid the replay that passed before it.
+ */
+export function latestFlowResults(
+  runs: readonly { createdAt: number; flows?: readonly RunFlowResult[] | undefined }[],
+): RunFlowResult[] {
+  const newest = new Map<string, RunFlowResult>();
+  for (const run of [...runs].sort((a, b) => b.createdAt - a.createdAt)) {
+    for (const flow of run.flows ?? []) if (!newest.has(flow.name)) newest.set(flow.name, flow);
+  }
+  return [...newest.values()];
+}
+
+/**
  * The flows a run lets the gate count as passing.
  *
  * Every PASS or HEALED flow by its own name, as before. A generated copy of a template also credits

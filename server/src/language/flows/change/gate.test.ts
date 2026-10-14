@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RunFlowStatus, type RunFlowResult } from '@reticlehq/core';
-import { gateDecision, passingFlowNames } from './gate.js';
+import { gateDecision, latestFlowResults, passingFlowNames } from './gate.js';
 
 describe('gateDecision', () => {
   it('passes when every affected flow has a passing artifact', () => {
@@ -128,5 +128,38 @@ describe('what a run lets the gate count as passing', () => {
     ]) {
       expect(passingFlowNames([copy])).not.toContain('checkout');
     }
+  });
+});
+
+/**
+ * The gate read only the newest run. A hand drive saves a run with no flow results when its session
+ * ends, so a run written after a passing replay hid the replay and the gate failed.
+ */
+describe('the flow results the gate reads', () => {
+  const result = (name: string, status: RunFlowStatus): RunFlowResult => ({
+    name,
+    status,
+    steps: 1,
+    durationMs: 1,
+  });
+
+  it('takes the newest result of each flow from any run', () => {
+    const runs = [
+      { createdAt: 3, flows: [] },
+      { createdAt: 2, flows: [result('checkout', RunFlowStatus.PASS)] },
+      {
+        createdAt: 1,
+        flows: [result('checkout', RunFlowStatus.FAIL), result('refund', RunFlowStatus.PASS)],
+      },
+    ];
+    expect(passingFlowNames(latestFlowResults(runs)).sort()).toEqual(['checkout', 'refund']);
+  });
+
+  it('lets a newer failure replace an older pass', () => {
+    const runs = [
+      { createdAt: 1, flows: [result('checkout', RunFlowStatus.PASS)] },
+      { createdAt: 2, flows: [result('checkout', RunFlowStatus.FAIL)] },
+    ];
+    expect(passingFlowNames(latestFlowResults(runs))).toEqual([]);
   });
 });

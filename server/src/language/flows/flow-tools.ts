@@ -149,6 +149,12 @@ const INTENT_GAP_FIELD = z
     'Present ONLY when the flow was saved with nothing saying what it is for: { kind, missing, cost, fix }. The flow is on disk either way — this never blocks a save. Close it by saving again with `intent`, or by setting the flow file’s `intentId` to an intent already in the ledger. Nothing here is ever derived from the flow name, the steps or the assertions: a guessed goal reads as the author’s own words.',
   );
 
+/** `flow`: the name reticle_annotate gives the field the flow tools call `flowName`. */
+const FLOW_NAME_ALIAS = z
+  .string()
+  .optional()
+  .describe('Alias for `flowName` (the name reticle_annotate uses).');
+
 export const FLOW_TOOLS: ToolDef[] = [
   FLOW_MUTATE_TOOL,
   {
@@ -156,10 +162,7 @@ export const FLOW_TOOLS: ToolDef[] = [
     description:
       'Persist a STOPPED recording (by name) as a git-checked, anchor-resolved flow at .reticle/flows/<name>.json. A recording that is still running is refused: stop it first with reticle_record{action:"stop"}, and the refusal names the exact call. Each step is bound to a SEMANTIC anchor (testid/role/signal), never a volatile ref; steps without a resolvable testid are kept with degraded:true (a "add a data-testid here" marker) rather than dropped. Returns { name, stepCount, degraded, empty, assertions, warning? } — `assertions.grade` is asserted | presence-only | assertion-free: a flow that only acts (or only checks element presence) will pass even if the feature breaks, so when grade is not "asserted" follow assertions.warning and add a consequence assertion via reticle_annotate (assert-signal / assert-net / success-state). `warning` is present when the recording left a page and returned to it: replay has no navigation steps, so the next click will look for a control on a page the tab is no longer on.',
     inputSchema: {
-      flow: z
-        .string()
-        .optional()
-        .describe('Alias for `flowName` (the name reticle_annotate uses).'),
+      flow: FLOW_NAME_ALIAS,
       name: z.string().optional().describe('Alias for `flowName`.'),
       flowName: z
         .string()
@@ -371,10 +374,7 @@ export const FLOW_TOOLS: ToolDef[] = [
     description:
       'Read + validate a saved flow by flowName from .reticle/flows/<flowName>.json. Returns the FlowFile (version, flowName, createdAt, anchored steps) or a structured { error, code }. Step `expect` (and flow `success`) accepts the same allOf grammar as reticle_act_and_wait; a parse failure names the step and key rather than calling the file malformed.',
     inputSchema: {
-      flow: z
-        .string()
-        .optional()
-        .describe('Alias for `flowName` (the name reticle_annotate uses).'),
+      flow: FLOW_NAME_ALIAS,
       flowName: z
         .string()
         .describe('Flow file name (without .json extension) from reticle_flow{action:"list"}.'),
@@ -384,10 +384,7 @@ export const FLOW_TOOLS: ToolDef[] = [
         .describe('Active session ID — resolves the flow within that app’s scope.'),
     },
     outputSchema: {
-      flow: z
-        .string()
-        .optional()
-        .describe('Alias for `flowName` (the name reticle_annotate uses).'),
+      flow: FLOW_NAME_ALIAS,
       flowName: z.string(),
       steps: z.array(z.unknown()),
       createdAt: z.number().optional(),
@@ -410,10 +407,7 @@ export const FLOW_TOOLS: ToolDef[] = [
       'to the connected app. Returns { deleted: true } or a structured { error, code } (code not_found ' +
       'when no such flow — deleting an absent flow is an error, not a silent no-op).',
     inputSchema: {
-      flow: z
-        .string()
-        .optional()
-        .describe('Alias for `flowName` (the name reticle_annotate uses).'),
+      flow: FLOW_NAME_ALIAS,
       flowName: z
         .string()
         .describe('Flow file name (without .json extension) from reticle_flow{action:"list"}.'),
@@ -451,13 +445,13 @@ export const FLOW_TOOLS: ToolDef[] = [
       'treat as proof. ' +
       'Early halt carries halted:{atStep, notAttempted}: `steps` is shorter because replay stopped.',
     inputSchema: {
-      flow: z
-        .string()
-        .optional()
-        .describe('Alias for `flowName` (the name reticle_annotate uses).'),
+      flow: FLOW_NAME_ALIAS,
       flowName: z
         .string()
-        .describe('Flow file name (without .json extension) from reticle_flow{action:"list"}.'),
+        .optional()
+        .describe(
+          'Flow file name (without .json extension) from reticle_flow{action:"list"}. Required, here or as `flow`.',
+        ),
       [CALL_SECRETS_ARG]: callSecretsArg,
       confirmDangerous: confirmDangerousArg('this replay'),
       from: z
@@ -577,7 +571,11 @@ export const FLOW_TOOLS: ToolDef[] = [
     // The decision envelope is attached by replayNamedFlow only on drift/fail (clean pass stays
     // token-flat). Single-flow replay and whole-suite verify share that one implementation.
     handler: (deps: ToolDeps, args): Promise<FlowReplayResult> =>
-      replayOneFlow(deps, args, leasableAppUrl(deps, asString(args['sessionId']))),
+      replayOneFlow(
+        deps,
+        aliasParam(args, 'flowName', ['flow']),
+        leasableAppUrl(deps, asString(args['sessionId'])),
+      ),
   },
   {
     name: ReticleTool.FLOW_VERIFY,
@@ -848,10 +846,7 @@ export const FLOW_TOOLS: ToolDef[] = [
       'recorded name. Returns { name, stepCount, degraded, empty } or { error, code } (code ' +
       'flow_no_recorded when no recording is present).',
     inputSchema: {
-      flow: z
-        .string()
-        .optional()
-        .describe('Alias for `flowName` (the name reticle_annotate uses).'),
+      flow: FLOW_NAME_ALIAS,
       flowName: z
         .string()
         .optional()
@@ -931,10 +926,7 @@ export const FLOW_TOOLS: ToolDef[] = [
       'untouched). Returns { name, status: healed|drift|unhealable|consequence_broken|' +
       'nothing_to_heal|error, applied, proposals[], changed[], message }.',
     inputSchema: {
-      flow: z
-        .string()
-        .optional()
-        .describe('Alias for `flowName` (the name reticle_annotate uses).'),
+      flow: FLOW_NAME_ALIAS,
       flowName: z.string().describe('Flow file name to heal (from reticle_flow{action:"list"}).'),
       apply: z.boolean().optional(),
       confirmDangerous: confirmDangerousArg('this heal replay'),
@@ -946,10 +938,7 @@ export const FLOW_TOOLS: ToolDef[] = [
         ),
     },
     outputSchema: {
-      flow: z
-        .string()
-        .optional()
-        .describe('Alias for `flowName` (the name reticle_annotate uses).'),
+      flow: FLOW_NAME_ALIAS,
       flowName: z.string(),
       status: z.string(),
       applied: z.boolean(),
