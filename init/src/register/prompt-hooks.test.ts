@@ -9,6 +9,7 @@ import {
   promptHookPath,
   uninstallPromptHook,
 } from './prompt-hooks.js';
+import { RETICLE_VERSION } from '@/version.js';
 
 /** The value at a path of keys and indexes in parsed JSON, or undefined. */
 const dig = (text: string, ...path: (string | number)[]): unknown =>
@@ -82,6 +83,38 @@ describe('the prompt-capture hook in each agent config', () => {
       expect(twice.content, agent.id).toBe(once);
       expect(promptHookInstalled(agent, once), agent.id).toBe(true);
     }
+  });
+
+  it('names the version that installed it, so a stale npx cache cannot run an older CLI', () => {
+    expect(promptHookCommand(PromptHookAgent.CURSOR)).toBe(
+      `npx -y @reticlehq/server@${RETICLE_VERSION} hook prompt --agent cursor`,
+    );
+  });
+
+  it('replaces an entry an older version wrote, and keeps one', () => {
+    const old = JSON.stringify({
+      hooks: {
+        UserPromptSubmit: [
+          {
+            hooks: [
+              {
+                type: 'command',
+                command: 'npx -y @reticlehq/server@0.0.1 hook prompt --agent claude-code',
+              },
+            ],
+          },
+          { hooks: [{ type: 'command', command: 'theirs.sh' }] },
+        ],
+      },
+    });
+    const claude = spec(PromptHookAgent.CLAUDE_CODE);
+    expect(promptHookInstalled(claude, old)).toBe(false);
+    const out = installPromptHook(claude, old);
+    expect(out.status).toBe(PromptHookStatus.APPLY);
+    const commands = JSON.stringify(dig(out.content, 'hooks', 'UserPromptSubmit'));
+    expect(commands).not.toContain('@0.0.1');
+    expect(commands).toContain('theirs.sh');
+    expect(commands.split(promptHookCommand(PromptHookAgent.CLAUDE_CODE))).toHaveLength(2);
   });
 
   it('leaves a file that is not a JSON object alone', () => {

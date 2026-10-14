@@ -15,7 +15,7 @@
  * The merge is JSON only, and it never rewrites a file that is not a plain JSON object (comments,
  * trailing commas): the caller prints the entry instead.
  */
-import { RETICLE_NPM_PACKAGE } from '@/version.js';
+import { RETICLE_NPM_PACKAGE, RETICLE_VERSION } from '@/version.js';
 
 export const PromptHookAgent = {
   CLAUDE_CODE: 'claude-code',
@@ -36,14 +36,22 @@ export const PromptHookStatus = {
 } as const;
 export type PromptHookStatus = (typeof PromptHookStatus)[keyof typeof PromptHookStatus];
 
-/** The words every one of our commands holds, and no other command does. */
-export const PROMPT_HOOK_MARKER = `${RETICLE_NPM_PACKAGE} hook prompt`;
+/** The words every version of our command holds, and no other command does. */
+export const PROMPT_HOOK_MARKER = ' hook prompt --agent ';
 export const AGENT_FLAG = '--agent';
-/** Seconds. The hook finishes in well under one; this only bounds a hung `npx`. */
-const HOOK_TIMEOUT_S = 10;
+/**
+ * Seconds. The hook itself finishes in well under one. The rest is for `npx`, which downloads the
+ * pinned version once when its cache does not hold it.
+ */
+const HOOK_TIMEOUT_S = 30;
 
+/**
+ * The command, PINNED to the version that installed it. Unpinned, `npx` runs whatever version its
+ * cache holds: on a real machine that was 3.4.0, which has no `hook` command, so every prompt was
+ * lost while the hook still exited quietly. A re-run of `init` moves the pin forward.
+ */
 export const promptHookCommand = (agent: PromptHookAgent): string =>
-  `npx ${PROMPT_HOOK_MARKER} ${AGENT_FLAG} ${agent}`;
+  `npx -y ${RETICLE_NPM_PACKAGE}@${RETICLE_VERSION}${PROMPT_HOOK_MARKER}${agent}`;
 
 /** One place in the config that holds a list of hook entries, and the entry we add to it. */
 interface HookSlot {
@@ -245,7 +253,11 @@ function parseConfig(text: string | null): Json | undefined {
 
 const serialize = (config: Json): string => `${JSON.stringify(config, null, 2)}\n`;
 
-const ours = (item: unknown): boolean => JSON.stringify(item).includes(PROMPT_HOOK_MARKER);
+/** Any version of our entry. */
+const ours = (item: unknown): boolean => {
+  const text = JSON.stringify(item);
+  return text.includes(RETICLE_NPM_PACKAGE) && text.includes(PROMPT_HOOK_MARKER);
+};
 
 /** The list at `path`, or an empty one. */
 function listAt(config: Json, path: readonly string[]): unknown[] {
@@ -274,11 +286,15 @@ export function promptHookPath(spec: PromptHookSpec, exists: (path: string) => b
   return spec.paths.find((path) => exists(path)) ?? spec.defaultPath;
 }
 
+/** THIS version's entry is in every slot. An older version's entry is replaced by install. */
 export function promptHookInstalled(spec: PromptHookSpec, text: string | null): boolean {
   const config = parseConfig(text);
+  const command = promptHookCommand(spec.id);
   return (
     config !== undefined &&
-    spec.slots.every((slot) => listAt(config, slot.path).some((item) => ours(item)))
+    spec.slots.every((slot) =>
+      listAt(config, slot.path).some((item) => JSON.stringify(item).includes(command)),
+    )
   );
 }
 

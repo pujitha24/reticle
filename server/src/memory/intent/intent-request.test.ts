@@ -98,6 +98,30 @@ describe('a request belongs to the run that answered it', () => {
     expect((await read('drive-tab'))?.request).toBe('Sign in and check Diagnostics');
     expect(await read('drive-tab-2')).toBeUndefined();
   });
+
+  /*
+   * Found driving it live: the prompt hook rewrites request.json on every prompt, so a newer
+   * prompt replaced the request before the tab's run was written again. The rewrite found no
+   * request for itself and dropped the one it already carried, and the platform lost it too.
+   */
+  it('keeps the request a run carries when a newer prompt arrives before the run is rewritten', async () => {
+    const { d, fs } = deps(1_000);
+    await intentTool?.handler(d, { action: 'declare', request: 'Sign in and check Diagnostics' });
+    const store = new RunStore(fs, ROOT);
+    const run = { runId: 'drive-tab', createdAt: 2_000, flows: [], checks: [] } as never;
+    const read = async () =>
+      (
+        JSON.parse(await fs.readFile(`${ROOT}/runs/drive-tab.json`)) as {
+          context?: { request?: string };
+        }
+      ).context;
+    await store.write(run);
+    const later = deps(5_000);
+    (later.d as { fs: unknown }).fs = fs;
+    await intentTool?.handler(later.d, { action: 'declare', request: 'Now thank you' });
+    await store.write(run);
+    expect((await read())?.request).toBe('Sign in and check Diagnostics');
+  });
 });
 
 describe('who the request is shared with', () => {

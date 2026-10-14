@@ -98,7 +98,10 @@ export class RunStore {
       throw new Error(`refusing to write run with unsafe runId: ${JSON.stringify(run.runId)}`);
     }
     await this.#fs.mkdir(reticleDirPaths(this.#root).runs);
-    const context = run.context ?? (await this.#recentRequest(run.createdAt, run.runId));
+    const context =
+      run.context ??
+      (await this.#recentRequest(run.createdAt, run.runId)) ??
+      (await this.#heldContext(run.runId));
     if (context !== undefined) run = { ...run, context };
     // The step screenshots taken for this run, the last of which may still be landing.
     await shotsLanded(this.#root, run.runId);
@@ -147,6 +150,23 @@ export class RunStore {
       return parsed.data;
     } catch {
       return undefined; // no request recorded: the common case
+    }
+  }
+
+  /**
+   * The request this run already carries on disk. A tab's run is written again after every verdict,
+   * and the prompt hook replaces request.json on every prompt: a newer prompt made the rewrite find
+   * no request of its own and drop the one it had, on this machine and on the platform.
+   */
+  async #heldContext(runId: RunId): Promise<PromptContext | undefined> {
+    try {
+      const held = JSON.parse(await this.#fs.readFile(runPath(this.#root, runId))) as {
+        context?: unknown;
+      };
+      const parsed = PromptContextSchema.safeParse(held.context);
+      return parsed.success ? parsed.data : undefined;
+    } catch {
+      return undefined; // a first write: nothing held yet
     }
   }
 
