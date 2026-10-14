@@ -18,8 +18,10 @@ import {
   type BackgroundSyncGate,
 } from './background-sync.js';
 import type { ProjectCloud } from './cloud-config.js';
+import { log } from '@/log.js';
 
 vi.mock('@/hooks/hook-emit.js', () => ({ emitSyncHook: vi.fn() }));
+vi.mock('@/log.js', () => ({ log: vi.fn() }));
 
 const URL_LINKED = 'http://localhost:8890';
 const LINKED: ProjectCloud = {
@@ -186,6 +188,28 @@ describe('background sync', () => {
     await d.syncNow();
     expect(d.background().failures).toBe(0);
     expect(d.background().lastError).toBeUndefined();
+    d.stop();
+  });
+});
+
+/*
+ * Found in the e2e battery: a daemon knows every project ever opened on the machine, and it wrote
+ * one `unlinked` line for each at start, next to the `reticle_cloud_unsynced_root` line that
+ * already says the same thing. A project that was never linked says nothing new.
+ */
+describe('what background sync logs', () => {
+  const lines = () =>
+    vi.mocked(log).mock.calls.filter(([event]) => 'reticle_background_sync' === event);
+
+  it('says nothing for a project that was never linked, and one line once it is', async () => {
+    vi.mocked(log).mockClear();
+    let gate: BackgroundSyncGate = { state: BackgroundSyncState.UNLINKED, why: 'not linked' };
+    const d = daemon(platform(), () => gate);
+    await vi.advanceTimersByTimeAsync(3 * INTERVAL);
+    expect(lines()).toHaveLength(0);
+    gate = ON;
+    await vi.advanceTimersByTimeAsync(3 * INTERVAL);
+    expect(lines()).toHaveLength(1);
     d.stop();
   });
 });

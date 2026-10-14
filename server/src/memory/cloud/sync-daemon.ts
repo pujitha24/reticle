@@ -312,7 +312,8 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
       } else refusedUnder.delete(root);
     }
     gates.set(root, gate);
-    if (loggedState.get(root) !== gate.state) {
+    // A root starts as unlinked: `reticle_cloud_unsynced_root` already names one that never linked.
+    if ((loggedState.get(root) ?? BackgroundSyncState.UNLINKED) !== gate.state) {
       loggedState.set(root, gate.state);
       log('reticle_background_sync', { root, state: gate.state, why: gate.why });
     }
