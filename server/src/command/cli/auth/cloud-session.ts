@@ -6,10 +6,13 @@
  * construction rather than by a guard somebody has to remember at each call site.
  */
 import { z } from 'zod';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Where per-host sessions live under the reticle home directory. */
 export const SESSIONS_DIR = 'sessions';
+/** The active session, beside the per-host ones. `cloud-kit` names the same file. */
+export const ACTIVE_SESSION_FILE = 'session.json';
 
 const SessionSchema = z.object({
   url: z.string(),
@@ -66,3 +69,27 @@ export const resolveSessionFor = (
   if (perHost !== null) return perHost;
   return null !== active && normalizeUrl(active.url) === normalizeUrl(url) ? active : null;
 };
+
+/**
+ * Who is signed in to `url` on this machine: the session's token, or undefined when nobody is.
+ *
+ * For the daemon's background sync, which sends only while somebody is signed in. The token is the
+ * answer, not a yes, so a sync stopped by a refused credential can tell a NEW sign-in from the one
+ * it was refused under. Read from disk on each call: `login` and `logout` run in another process.
+ */
+export function signedInTo(reticleHome: string, url: string): string | undefined {
+  const read = (path: string): Session | null => {
+    try {
+      const parsed = SessionSchema.safeParse(JSON.parse(readFileSync(path, 'utf8')));
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
+  };
+  const session = resolveSessionFor(
+    url,
+    read(sessionPath(reticleHome, url)),
+    read(join(reticleHome, ACTIVE_SESSION_FILE)),
+  );
+  return null === session || 0 === session.token.length ? undefined : session.token;
+}

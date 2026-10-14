@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { cloudFetch } from '@/memory/cloud/cloud-sync.js';
 import {
+  ACTIVE_SESSION_FILE,
   normalizeUrl,
   readSessionFrom,
   resolveSessionFor,
@@ -24,7 +25,7 @@ import {
 } from './auth/cloud-session.js';
 
 export const RETICLE_DIR = '.reticle';
-export const SESSION_FILE = 'session.json';
+export const SESSION_FILE = ACTIVE_SESSION_FILE;
 export const CREDENTIALS_FILE = 'credentials.json';
 
 /** The user-level reticle directory, `~/.reticle`. Sessions and credentials live here, not in a repo. */

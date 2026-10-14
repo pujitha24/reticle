@@ -64,6 +64,8 @@ When nothing has connected, the `sessions` line fails and the daemon's own diagn
 | `desktop` | Only on a desktop project. Every Electron and Tauri misconfiguration here fails silently, so it is diagnosed explicitly |
 | `coverage` | Only with a connected app. What Reticle sees in it, out of eight capabilities: what is missing, what is not seen yet, and, once a verdict recorded a gap, a prompt to paste into your coding agent |
 | `unsynced` | Only when a project folder holds runs the platform never got. Names the folder and the command that sends them, usually `reticle connect` run there |
+| `prompts` | For each agent used here, whether its prompt hook saves each prompt to `.reticle/`, and which agents rely on the MCP instructions instead. Says so when capture is off for the project or the machine |
+| `sync` | Whether the daemon sends this project's work in the background, and why not when it does not: switched off, not linked, or nobody signed in. Adds the last push time and the last error |
 
 ## The chromium line
 

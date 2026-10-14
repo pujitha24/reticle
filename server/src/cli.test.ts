@@ -76,6 +76,7 @@ const INIT_DEFAULTS = {
   filesOnly: false,
   captureBodies: false,
   hooks: false,
+  promptCapture: true,
   json: false,
   open: true,
   firstRun: true,
@@ -425,6 +426,15 @@ describe('parseCliArgs', () => {
   it('takes --hooks, and leaves it off by default', () => {
     expect(parseCliArgs(['init', '--hooks'], PORT)).toEqual({ ...INIT_DEFAULTS, hooks: true });
     expect(parseCliArgs(['init'], PORT)).toMatchObject({ hooks: false });
+  });
+
+  // On by default; the flag is one of the three opt-outs the consent line names.
+  it('takes --no-prompt-capture, and captures by default', () => {
+    expect(parseCliArgs(['init', '--no-prompt-capture'], PORT)).toEqual({
+      ...INIT_DEFAULTS,
+      promptCapture: false,
+    });
+    expect(parseCliArgs(['init'], PORT)).toMatchObject({ promptCapture: true });
   });
 
   it('refuses a flag that names no value, rather than swallowing the next one', () => {

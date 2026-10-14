@@ -44,11 +44,34 @@ import { describeSync, runSyncCycle, type SyncReport } from './sync-cycle.js';
 import { diskSink, diskSource, readCloudState } from './sync-disk.js';
 import { CLOUD_LINK_FILE, resolveProjectCloud, type ProjectCloud } from './cloud-config.js';
 import { watch } from 'node:fs';
+import {
+  BackgroundSyncState,
+  backgroundSyncGate,
+  localFingerprint,
+  type BackgroundSyncGate,
+} from './background-sync.js';
 import { unmatchedRoots, unsyncedRoots, type UnsyncedRoot } from './unsynced-roots.js';
 import type { FileSystemPort } from '@/memory/project/fs/fs-port.js';
 
-/** How often the daemon cycles. See the note above on why this is a constant and not a curve. */
-const DAEMON_SYNC_INTERVAL_MS = 60_000;
+/**
+ * How often the daemon looks. A look is LOCAL: with a fingerprint (see `localFingerprint`) a tick
+ * on which nothing changed makes no network call at all, so a prompt the agent hook captured, or a
+ * run just written, reaches the platform within one interval without a minute of idle polling.
+ */
+const DAEMON_SYNC_INTERVAL_MS = 30_000;
+
+/**
+ * How long nothing local may change before the daemon still asks the platform for decisions made
+ * there (triage, settled words). The pull used to ride on EVERY idle tick, once a minute; the
+ * decisions it brings are read by the next run, so five minutes of latency costs nobody a verdict.
+ */
+const PULL_EVERY_MS = 5 * 60_000;
+
+/**
+ * The longest a failing sync waits before it tries again. A network error doubles the wait from the
+ * interval up to this, with jitter, so a laptop offline for an hour makes a few calls, not 120.
+ */
+const MAX_BACKOFF_MS = 15 * 60_000;
 
 /**
  * The cadence while something is actually happening.
@@ -118,6 +141,25 @@ interface SyncDaemonDeps {
     url: string,
     init: { method: string; headers: Record<string, string>; body?: string },
   ) => Promise<{ status: number; text: string }>;
+  /**
+   * May this root's work be sent now (opt-outs, link, sign-in)? Asked for every root on every tick.
+   * Absent: every resolved link may send, which is how `startSyncDaemon` behaved before.
+   */
+  gate?: (root: string, cloud: ProjectCloud) => BackgroundSyncGate;
+  /** What a cycle would read, summarised. Absent: every tick goes to the network. */
+  fingerprint?: (root: string) => string;
+  /** Jitter for the backoff, in [0, 1). Injected: pure logic never calls `Math.random`. */
+  random?: () => number;
+}
+
+/** Where the background sync of the daemon's own project stands, for `doctor` and the tests. */
+export interface BackgroundSyncReport {
+  state: BackgroundSyncState;
+  why: string;
+  /** Network failures in a row; the backoff grows with it. */
+  failures: number;
+  lastError?: string;
+  lastPushAt?: number;
 }
 
 export interface SyncDaemon {
@@ -153,7 +195,12 @@ export interface SyncDaemon {
    * or not. An unlinked one is the case nothing will ever send, and it used to be skipped silently.
    */
   unsyncedRoots: () => readonly UnsyncedRoot[];
+  /** Where the background sync of this daemon's own root stands. */
+  background: () => BackgroundSyncReport;
 }
+
+/** A failed status, push or pull that says the platform refused the credential. */
+const AUTH_REFUSED = /^(?:status|sync|pull) 40[13]\b/;
 
 /** Whether a cycle landed or collected anything — what earns the fast interval and a log line. */
 const movedAnything = (report: SyncReport): boolean =>
@@ -179,6 +226,19 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
   const activeIntervalMs = Math.min(DAEMON_SYNC_ACTIVE_INTERVAL_MS, intervalMs);
   const now = deps.now ?? ((): number => Date.now());
   const request = deps.request ?? defaultRequest;
+  // No jitter unless one is injected: the daemon passes `Math.random`.
+  const random = deps.random ?? ((): number => 0.5);
+  /** Network failures in a row, for the backoff. Cleared by the next success. */
+  let failures = 0;
+  /** Per root, the credential the platform refused (401/403). Stopped until the sign-in changes. */
+  const refusedUnder = new Map<string, string>();
+  /** Per root, the fingerprint of what the last successful cycle saw, and when it ran. */
+  const sent = new Map<string, { fingerprint: string; at: number }>();
+  /** Per root, the gate as of this tick. */
+  const gates = new Map<string, BackgroundSyncGate>();
+  /** Per root, the state last logged: one line per change, never one per tick. */
+  const loggedState = new Map<string, string>();
+  let lastPushAt: number | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   let running = false;
@@ -235,9 +295,63 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
     }
   };
 
+  /**
+   * The cloud as this tick may use it: unchanged when the gate lets the root send, else with no
+   * config, which every caller below already reads as "send nothing". A credential the platform
+   * refused stays refused until the sign-in or the key changes.
+   */
+  const admit = (root: string, cloud: ProjectCloud): ProjectCloud => {
+    if (deps.gate === undefined) return cloud;
+    let gate = deps.gate(root, cloud);
+    if (BackgroundSyncState.ON === gate.state && gate.credential !== undefined) {
+      if (refusedUnder.get(root) === gate.credential) {
+        gate = {
+          state: BackgroundSyncState.REFUSED,
+          why: 'the platform refused this sign-in: run `reticle login` again',
+        };
+      } else refusedUnder.delete(root);
+    }
+    gates.set(root, gate);
+    if (loggedState.get(root) !== gate.state) {
+      loggedState.set(root, gate.state);
+      log('reticle_background_sync', { root, state: gate.state, why: gate.why });
+    }
+    return BackgroundSyncState.ON === gate.state ? cloud : { ...cloud, config: null };
+  };
+
+  /** Stop sending for this root until its sign-in changes. */
+  const refuse = (root: string): void => {
+    const credential = gates.get(root)?.credential;
+    if (credential !== undefined) refusedUnder.set(root, credential);
+  };
+
   /** One root's bundle. The state, source and sink are already per-root; only the caller was not. */
-  const pushRoot = async (root: string, cloud: ProjectCloud): Promise<SyncReport | undefined> => {
+  const pushRoot = async (
+    root: string,
+    cloud: ProjectCloud,
+    force = false,
+  ): Promise<SyncReport | undefined | null> => {
     if (null === cloud.config) return undefined;
+    // Nothing changed here since the last good cycle, and the pull is not due: no network at all.
+    const fingerprint = deps.fingerprint?.(root);
+    const last = sent.get(root);
+    if (
+      !force &&
+      fingerprint !== undefined &&
+      last !== undefined &&
+      last.fingerprint === fingerprint &&
+      now() - last.at < PULL_EVERY_MS
+    )
+      return null;
+    const report = await sendRoot(root, cloud);
+    if (fingerprint !== undefined && report.ok && report.error === undefined)
+      sent.set(root, { fingerprint, at: now() });
+    if (report.error !== undefined && AUTH_REFUSED.test(report.error)) refuse(root);
+    return report;
+  };
+
+  const sendRoot = async (root: string, cloud: ProjectCloud): Promise<SyncReport> => {
+    if (null === cloud.config) throw new Error('sendRoot needs a linked cloud');
     const full = diskSource(root);
     // The team's decisions come down too: an author's record kept the words a maintainer set aside,
     // and re-sent them every cycle as a new disagreement.
@@ -308,7 +422,7 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
       if (root === deps.reticleRoot) continue;
       rootsLinked.set(root, false);
       try {
-        const cloud = await cloudFor(root);
+        const cloud = admit(root, await cloudFor(root));
         // Linked HERE, by its own link file. An unlinked root resolves to the environment's key,
         // which is the right answer for the root this daemon stands in and somebody else's project
         // for every other one: a daemon started with RETICLE_API_KEY pushed every project this
@@ -318,7 +432,7 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
         rootsLinked.set(root, true);
         if (cloud.policy.flows) rootsSendFlows.add(root);
         const report = await pushRoot(root, cloud);
-        if (report === undefined) continue;
+        if (report === undefined || null === report) continue;
         if (report.error !== undefined) {
           log('reticle_cloud_sync_failed', { root, error: report.error });
           continue;
@@ -337,7 +451,7 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
     }
   };
 
-  const cycle = async (): Promise<SyncReport | undefined> => {
+  const cycle = async (force = false): Promise<SyncReport | undefined> => {
     // Overlap guard: a slow cycle must not have a second one started on top of it, or two bundles
     // race and the cursor written by the loser silently rewinds the winner's progress.
     if (running) return undefined;
@@ -345,12 +459,17 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
     rootsLinked = new Map();
     rootsSendFlows = new Set();
     try {
-      const cloud = await deps.cloud();
+      const cloud = admit(deps.reticleRoot, await deps.cloud());
       const linked = null !== cloud.config;
       const own = deps.reticleRoot;
       rootsLinked.set(own, linked);
       if (linked && cloud.policy.flows) rootsSendFlows.add(own);
-      if (linked !== wasLinked || (linked && cloud.projectId !== wasProject)) {
+      // With a gate, `admit` already said why once per change; this would say "run connect" to
+      // somebody who only signed out or switched sync off.
+      if (
+        deps.gate === undefined &&
+        (linked !== wasLinked || (linked && cloud.projectId !== wasProject))
+      ) {
         wasLinked = linked;
         wasProject = cloud.projectId;
         if (linked)
@@ -371,9 +490,14 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
       await syncOtherRoots();
 
       if (null === cloud.config) return undefined;
-      const report = await pushRoot(deps.reticleRoot, cloud);
+      const report = await pushRoot(deps.reticleRoot, cloud, force);
       // `pushRoot` returns undefined only for an unlinked root, which the guard above has ruled out.
       if (report === undefined) return undefined;
+      // Nothing changed locally: no call was made, and the next look is one interval away.
+      if (null === report) {
+        nextDelay = intervalMs;
+        return undefined;
+      }
       // Said out loud on EVERY cycle, including the ones that moved nothing and the ones that
       // failed. The log below is deliberately quiet when idle, which is right for a log and wrong
       // for a hook: from outside, "nothing changed" and "sync has been broken since Tuesday" are
@@ -392,7 +516,15 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
         reportedError = failure;
         log('reticle_cloud_sync_failed', { error: failure });
       }
+      if (report.error !== undefined && !AUTH_REFUSED.test(report.error)) {
+        // A network failure: wait longer each time, with jitter, so a machine offline for an hour
+        // makes a few calls rather than one per interval.
+        failures += 1;
+        nextDelay = Math.min(MAX_BACKOFF_MS, intervalMs * 2 ** failures) * (0.5 + random() / 2);
+      }
       if (report.error === undefined) {
+        failures = 0;
+        if (report.ok) lastPushAt = now();
         if (failure === undefined) reportedError = undefined;
         // Only when something actually moved. A per-minute "nothing to send" is noise that trains
         // people to stop reading the log.
@@ -446,9 +578,19 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
     // seconds after its last verdict, and a push straight after `session end` sent "0 of 0".
     syncNow: async () => {
       await flushPendingWrites();
-      return cycle();
+      return cycle(true);
     },
     unsyncedRoots: () => unsynced,
+    background: (): BackgroundSyncReport => {
+      const gate = gates.get(deps.reticleRoot);
+      return {
+        state: gate?.state ?? BackgroundSyncState.ON,
+        why: gate?.why ?? 'not checked yet',
+        failures,
+        ...(reportedError === undefined ? {} : { lastError: reportedError }),
+        ...(lastPushAt === undefined ? {} : { lastPushAt }),
+      };
+    },
     nudge: (): void => {
       // A cycle already in flight will not pick this up, so the nudge is still scheduled behind it
       // rather than dropped — otherwise the run that arrived during a slow cycle waits a full tick.
@@ -470,7 +612,7 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
       const deadline = Date.now() + FLUSH_WAIT_MS;
       while (running && Date.now() < deadline)
         await new Promise((resolve) => setTimeout(resolve, FLUSH_POLL_MS));
-      await cycle();
+      await cycle(true);
     },
   };
 }
@@ -493,6 +635,11 @@ export function attachCloudSync(deps: {
   homeDir: string;
   env: NodeJS.ProcessEnv;
   otherRoots: () => readonly string[];
+  /** The signed-in session's token for a platform address, or undefined. See `signedInTo`. */
+  signedIn: (url: string) => string | undefined;
+  /** Injected for the tests. */
+  request?: SyncDaemonDeps['request'];
+  intervalMs?: number;
 }): SyncDaemon {
   return startSyncDaemon({
     reticleRoot: deps.reticleRoot,
@@ -504,6 +651,13 @@ export function attachCloudSync(deps: {
     cloudFor: (root) => resolveProjectCloud(deps.fs, root, deps.homeDir, deps.env),
     // ponytail: this root only; a sibling root's re-link is still read on the next tick.
     watchLink: (onChange) => watchLinkFile(deps.reticleRoot, onChange),
+    // Sent only while somebody is signed in, to a linked project that did not switch it off.
+    gate: (root, cloud) =>
+      backgroundSyncGate({ reticleRoot: root, cloud, env: deps.env, signedIn: deps.signedIn }),
+    fingerprint: localFingerprint,
+    random: Math.random,
+    ...(deps.request === undefined ? {} : { request: deps.request }),
+    ...(deps.intervalMs === undefined ? {} : { intervalMs: deps.intervalMs }),
   });
 }
 

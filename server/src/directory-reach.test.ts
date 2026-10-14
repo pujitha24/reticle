@@ -315,6 +315,8 @@ const REACHES_FOR: Record<string, readonly string[]> = {
   ],
   capsule: ['dir', 'fs'],
   cli: [
+    // `doctor` prints, per agent, whether its prompt hook is installed: `hook` holds that table.
+    'hook',
     // `reticle try` asks the platform for its free drive through the same call the HUD's Run
     // Harness button makes (platform-drives.ts), so the two grants cannot drift apart.
     'platform',
@@ -375,6 +377,8 @@ const REACHES_FOR: Record<string, readonly string[]> = {
   cloud: ['cli', 'dir', 'fs', 'hooks', 'intent'],
   command: [
     'answers',
+    // `reticle hook`, dispatched first in `cli.ts` so that telemetry never sees a prompt.
+    'hook',
     // Rendering `status` for a person, rather than only logging it as an event. Out of `cli.ts`
     // because that file is a composition root already close to the cap, and because a pure
     // renderer is testable in a way a branch inside a command is not.
@@ -471,6 +475,12 @@ const REACHES_FOR: Record<string, readonly string[]> = {
   // `telemetry` for the one free-text redactor (credentials and personal data out of what a person
   // wrote), shared with feedback reports: a relayed user request is the same kind of text.
   intent: ['dir', 'fs', 'machine', 'project', 'telemetry', 'tools'],
+  /**
+   * `reticle hook prompt`: the agent's prompt hook. It finds the project from the folder the
+   * prompt was sent in (`config`), and keeps the prompt with the one recorder `reticle_intent`
+   * uses (`intent`), so the two writers cannot keep the request in two shapes.
+   */
+  hook: ['config', 'intent'],
   // What a run artifact is FOR once it exists -- stored, compared, and read back as established
   // fact -- as against the rest of `runs`, which produces one. Named `artifact`, singular, and it
   // must stay singular: `core/src/artifacts` is a different package and a different node, and

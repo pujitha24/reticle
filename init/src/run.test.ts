@@ -1369,7 +1369,8 @@ describe('init confirms a file it claims to have written', () => {
     const io = swallowingIo(VITE_FILES);
     runInit(OPTS, io);
     const report = io.lines.join('\n');
-    const configLine = report.split('\n').find((l) => l.includes('.reticle.json')) ?? '';
+    // The config's own line: the prompt-capture notice names the file too.
+    const configLine = report.split('\n').find((l) => l.includes('→ .reticle.json')) ?? '';
     expect(configLine, 'the config step must be reported').not.toBe('');
     expect(configLine, 'a ✓ here is a claim nothing checked').not.toContain('✓');
   });
@@ -1378,7 +1379,8 @@ describe('init confirms a file it claims to have written', () => {
     // The control. A confirmation that fails open would silently downgrade every healthy install.
     const io = memoryIo(VITE_FILES);
     runInit(OPTS, io);
-    const line = io.lines.find((l) => l.includes('.reticle.json')) ?? '';
+    // The config's own line: the prompt-capture notice names the file too.
+    const line = io.lines.find((l) => l.includes('→ .reticle.json')) ?? '';
     expect(line).toContain('✓');
     expect(io.written['.reticle.json']).toBeDefined();
   });

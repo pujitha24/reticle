@@ -153,7 +153,7 @@ const reachFor = (v: SurfaceVocabulary): string => {
   // surface-vocabulary.ts. Where there is no cold tail, there is nothing to say about reaching it.
   if (v.coldTail.length > 0) {
     lines.push(
-      `${v.coldTail} Two to know early: ${ReticleTool.RUN}({ tool: "${ReticleTool.CONTEXT}", args: {} }) returns what this run already established, after a compaction or handover, and ${ReticleTool.RUN}({ tool: "${ReticleTool.INTENT}", args: { action: "declare", ... } }) declares what a change was MEANT to do, so the verdict has something to check against other than itself.`,
+      `${v.coldTail} Two to know early: ${ReticleTool.RUN}({ tool: "${ReticleTool.CONTEXT}", args: {} }) returns what this run already established, after a compaction or handover, and ${ReticleTool.RUN}({ tool: "${ReticleTool.INTENT}", args: { action: "declare", request: "<user's words, verbatim>" } }), once per request, declares what the work is MEANT to do, so the verdict has something to check against.`,
     );
     // Measured: in 8 real agent runs asked to test an app, none read what Reticle already held
     // first, and none could tell its user the credits or the Harness state.

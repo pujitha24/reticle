@@ -19,6 +19,8 @@ import { reticleStateHome } from './daemon/daemon.js';
 import { handleMcp } from './cli/mcp-command.js';
 import { handleReport } from './cli/report-command.js';
 import { handleContext } from './cli/context-command.js';
+import { handleHook } from './cli/hook/hook-command.js';
+import { HOOK_COMMAND } from './cli/cli-parse.js';
 import {
   daemonProjectAt,
   readDaemonRegistry,
@@ -173,6 +175,7 @@ async function handleInit(parsed: {
   filesOnly?: boolean | undefined;
   captureBodies?: boolean | undefined;
   hooks?: boolean | undefined;
+  promptCapture?: boolean | undefined;
   licenseKey?: string | undefined;
   json?: boolean | undefined;
   drive?: boolean | undefined;
@@ -226,6 +229,7 @@ async function handleInit(parsed: {
       ...(parsed.url === undefined ? {} : { url: parsed.url }),
       captureBodies: true === parsed.captureBodies,
       hooks: true === parsed.hooks,
+      promptCapture: false !== parsed.promptCapture,
       // The outcome is reported by confirmInstall instead, once it knows whether an app connected —
       // `init` writing files was never the same thing as `init` working (#269).
       deferOutcome: true,
@@ -693,6 +697,17 @@ export function main(): void {
   const licenseKey = licenseKeyFromEnvFiles(process.cwd());
   if (licenseKey !== undefined) process.env[LICENSE_KEY_ENV] = licenseKey;
   const argv = process.argv.slice(2);
+  // The agent's prompt hook, FIRST: before the version re-exec (it must not start a second CLI on
+  // every prompt) and before telemetry, which must never see that a prompt existed, let alone it.
+  // `--help` falls through to the parser, which prints what `hook` does.
+  if (HOOK_COMMAND === argv[0] && !argv.some((arg) => '--help' === arg || '-h' === arg)) {
+    const prompt = 'prompt' === argv[1];
+    void handleHook(argv.slice(1))
+      .then((code) => process.exit(code))
+      // A hook that fails must still let the prompt through, so `prompt` exits 0 whatever happens.
+      .catch(() => process.exit(prompt ? 0 : 1));
+    return;
+  }
   // Before anything reports or writes: a CLI a major away from the project's SDK makes every verdict
   // `version_skew`, and the unpinned `npx @reticlehq/server` every agent entry uses resolves the
   // LATEST major whatever the project installed. Hand the same arguments to the matching release and

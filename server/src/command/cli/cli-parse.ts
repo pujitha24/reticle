@@ -65,6 +65,8 @@ const TELEMETRY_COMMAND = 'telemetry';
 const FEEDBACK_COMMAND = 'feedback';
 const DOCTOR_COMMAND = 'doctor';
 const SETUP_COMMAND = 'setup';
+/** `reticle hook`: the agent prompt hook. `cli.ts` runs it before this parser, and before telemetry. */
+export const HOOK_COMMAND = 'hook';
 /** The `reticle telemetry` sub-actions. Bare `reticle telemetry` means `status`. */
 export const TelemetryAction = {
   STATUS: 'status',
@@ -111,6 +113,7 @@ export const LOCAL_COMMANDS: readonly string[] = [
   DAEMON_INNER_COMMAND,
   DOCTOR_COMMAND,
   SETUP_COMMAND,
+  HOOK_COMMAND,
 ];
 const LOCAL_COMMAND_SET: ReadonlySet<string> = new Set(LOCAL_COMMANDS);
 const KNOWN_COMMANDS: ReadonlySet<string> = new Set([
@@ -186,6 +189,8 @@ const START_FLAG = '--start';
 const CAPTURE_BODIES_FLAG = '--capture-bodies';
 /** `--hooks`: also install the print-only Claude Code Stop hook (`reticle report --hook`). */
 const HOOKS_FLAG = '--hooks';
+/** `--no-prompt-capture`: install no prompt-capture hook for the agents found. */
+const NO_PROMPT_CAPTURE_FLAG = '--no-prompt-capture';
 /**
  * The rest of the runtime surface.
  *
@@ -244,6 +249,7 @@ export type CliResult =
       filesOnly: boolean;
       captureBodies: boolean;
       hooks: boolean;
+      promptCapture: boolean;
       json: boolean;
       relaunch: boolean;
       open: boolean;
@@ -463,6 +469,7 @@ type InitFlags =
       filesOnly: boolean;
       captureBodies: boolean;
       hooks: boolean;
+      promptCapture: boolean;
       json: boolean;
       relaunch: boolean;
       open: boolean;
@@ -486,6 +493,7 @@ function parseInitFlags(args: string[]): InitFlags {
   let start = false;
   let captureBodies = false;
   let hooks = false;
+  let promptCapture = true;
   let json = false;
   let open = true;
   let firstRun = true;
@@ -527,6 +535,8 @@ function parseInitFlags(args: string[]): InitFlags {
       captureBodies = true;
     } else if (arg === HOOKS_FLAG) {
       hooks = true;
+    } else if (arg === NO_PROMPT_CAPTURE_FLAG) {
+      promptCapture = false;
     } else if (arg === JSON_FLAG) {
       json = true;
     } else if (arg === NO_OPEN_FLAG) {
@@ -580,6 +590,7 @@ function parseInitFlags(args: string[]): InitFlags {
     filesOnly: filesOnly || (app !== undefined && !start),
     captureBodies,
     hooks,
+    promptCapture,
     json,
     open,
     firstRun,
@@ -697,6 +708,7 @@ export function parseCliArgs(
         filesOnly: r.filesOnly,
         captureBodies: r.captureBodies,
         hooks: r.hooks,
+        promptCapture: r.promptCapture,
         json: r.json,
         open: r.open,
         firstRun: r.firstRun,
@@ -869,6 +881,9 @@ export function parseCliArgs(
         ...(session === undefined ? {} : { session }),
       };
     }
+    // `cli.ts` runs `hook` before this parser. Reached only without that dispatch: say what it does.
+    case HOOK_COMMAND:
+      return { kind: 'help', topic: HOOK_COMMAND };
     case CONTEXT_COMMAND: {
       // `--compact` is the only form; accepted so the hook line reads as what it does.
       const at = rest.indexOf(SESSION_FLAG);

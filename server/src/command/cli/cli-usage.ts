@@ -44,6 +44,7 @@ the first flow. It never drives: the Harness is opt-in and unlocks at 80% instru
   --no-install       do not install packages
   --no-mcp           skip the MCP registration, the agent rule files and the /reticle command
   --hooks            also install the agent hooks
+  --no-prompt-capture  install no hook that saves each prompt to .reticle/
   --relaunch         print the command that restarts this agent conversation with the tools loaded
   --license <key>    write an enterprise key to .env and keep .env out of git
   --json             print the result as one JSON object on stdout
@@ -222,6 +223,19 @@ const COMMANDS: readonly CommandDoc[] = [
     synopsis: 'context --compact [--session <id>]',
     summary: 'Resume after a compaction: what was proved, failed and is still owed',
     group: HelpGroup.MORE,
+  },
+  {
+    name: 'hook',
+    synopsis: 'hook [install|uninstall|status|prompt --agent <id>]',
+    summary: 'Save each prompt you send to .reticle/, through your agent hooks',
+    group: HelpGroup.MORE,
+    detail:
+      '  hook install      add the prompt-capture hook for the agents used here\n' +
+      '  hook uninstall    remove exactly the entries hook install added\n' +
+      '  hook status       which agents capture prompts, and which rely on the MCP instructions\n' +
+      '  hook prompt --agent <id>   what the agent hook runs; reads the prompt on stdin\n\n' +
+      'Off for one project: "promptCapture": false in .reticle.json. Off on this machine:\n' +
+      'RETICLE_PROMPT_CAPTURE=0.',
   },
   {
     name: 'mcp',

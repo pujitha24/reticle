@@ -99,3 +99,22 @@ export {
 } from './register/mcp.js';
 export { codexNamesOurServer } from './register/codex-toml.js';
 export { detectMcpClients, type DetectedClient } from './register/detect-clients.js';
+
+/**
+ * The prompt-capture hook, for `reticle hook install|uninstall|status` and `reticle doctor`: the
+ * same agent table and the same merge `init` uses, so the two cannot disagree about an agent.
+ */
+export {
+  MCP_FALLBACK_AGENTS,
+  PROMPT_HOOK_AGENTS,
+  PromptHookAgent,
+  PromptHookStatus,
+  installPromptHook,
+  promptHookCommand,
+  promptHookInstalled,
+  promptHookTargets,
+  uninstallPromptHook,
+  type PromptHookSpec,
+  type PromptHookTarget,
+} from './register/prompt-hooks.js';
+export { PROMPT_CAPTURE_NOTICE } from './plan/stop-hook-step.js';

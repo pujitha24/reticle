@@ -9,6 +9,7 @@
 import type { Detection, Framework, UiLibrary } from '@/detect/detect.js';
 import type { FoundStore } from '@/detect/capabilities.js';
 import type { McpClient } from '@/register/mcp-clients.js';
+import type { PromptHookTarget } from '@/register/prompt-hooks.js';
 
 /** Exported so the init telemetry can tell an MCP-registration failure from a dependency install. */
 export const MCP_TARGET = 'global (claude user scope)';
@@ -311,6 +312,10 @@ export interface PlanInput {
   hooks?: boolean | undefined;
   /** Current .claude/settings.json content, or null when absent (the hook is MERGED into it). */
   claudeSettingsContent?: string | null | undefined;
+  /** Install the prompt-capture hook into `.claude/settings.json`: Claude Code is used here. */
+  claudePromptHook?: boolean | undefined;
+  /** Every OTHER agent found here with a prompt hook, and its config as it is now. */
+  promptHooks?: readonly PromptHookTarget[] | undefined;
   /**
    * Absolute directory the AGENT runs in, when that is not the app's directory.
    *

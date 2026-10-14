@@ -33,6 +33,12 @@ import {
   readProjectPort,
 } from './ports/resolve/cli-port.js';
 import { DoctorRow, doctorRow } from './doctor/doctor-rows.js';
+import { ReticleDir } from '@reticlehq/core';
+import { resolveProjectCloud } from '@/memory/cloud/cloud-config.js';
+import { BackgroundSyncState, backgroundSyncGate } from '@/memory/cloud/background-sync.js';
+import { readCloudState } from '@/memory/cloud/sync-disk.js';
+import { signedInTo } from './auth/cloud-session.js';
+import { claudeCliHere, projectDirOf, promptCaptureRows } from './hook/hook-command.js';
 import { coverageLines } from './doctor/doctor-coverage-line.js';
 import { homedir } from 'node:os';
 import { createNodeFileSystem } from '@/memory/project/fs/fs-port.js';
@@ -226,6 +232,8 @@ export async function handleDoctor(port: number): Promise<void> {
       configPresent: existsSync(join(process.cwd(), RETICLE_CONFIG_BASENAME)),
     }),
   );
+  // Are prompts reaching `.reticle/`, and is the work reaching the user's own workspace.
+  for (const row of await captureAndSyncLines(process.cwd(), process.env)) line(row);
   // Where to LOOK when something is wrong. The daemon has always written a structured log here and
   // nothing ever said so, so the first move in every investigation was reading source instead of
   // reading the log. `RETICLE_TRACE=1` turns the same stream into a per-stage trace — see
@@ -323,4 +331,37 @@ export async function handleDoctor(port: number): Promise<void> {
   }
   const keychain = keychainNoteFor({ read: readProjectFile });
   if (keychain !== undefined) line(doctorRow(DoctorRow.DESKTOP, `⚠ ${keychain}`));
+}
+
+/**
+ * Two rows: does each agent hand its prompts to Reticle, and does the daemon send this
+ * project's work in the background, and if not, why.
+ *
+ * Both answers come from the disk, the same files the hook and the daemon read, so `doctor` needs
+ * no daemon to give them. A sync the platform refused shows as the last error the cycle recorded.
+ */
+async function captureAndSyncLines(cwd: string, env: NodeJS.ProcessEnv): Promise<string[]> {
+  const home = homedir();
+  const projectDir = projectDirOf(cwd);
+  const lines = promptCaptureRows(projectDir, home, env, claudeCliHere()).map((row) =>
+    doctorRow(DoctorRow.PROMPTS, row),
+  );
+  const reticleRoot = join(projectDir, ReticleDir.ROOT);
+  const cloud = await resolveProjectCloud(createNodeFileSystem(), reticleRoot, home, env);
+  const gate = backgroundSyncGate({
+    reticleRoot,
+    cloud,
+    env,
+    signedIn: (url) => signedInTo(join(home, ReticleDir.ROOT), url),
+  });
+  const state = readCloudState(reticleRoot);
+  const on = BackgroundSyncState.ON === gate.state;
+  const last =
+    state.lastPushAt === undefined
+      ? 'no push yet'
+      : `last push ${new Date(state.lastPushAt).toISOString()}`;
+  lines.push(doctorRow(DoctorRow.SYNC, `${on ? '✓ on' : '✗ off'}: ${gate.why}; ${last}`));
+  if (state.lastError !== undefined)
+    lines.push(doctorRow(DoctorRow.SYNC, `✗ last error: ${state.lastError}`));
+  return lines;
 }

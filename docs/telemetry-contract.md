@@ -428,6 +428,8 @@ The second is the one that matters. It drives the real built modules against a r
 
 We measure **that** something happened and **what class** of thing it was, never **what** it was, in whose app, or containing what.
 
+The user's prompts are the clearest case. `reticle hook prompt` saves each prompt to the project's `.reticle/`, and it sends no event: `cli.ts` runs it before it reports the command, so telemetry does not learn that a prompt existed. A prompt leaves the machine only inside a run, to the user's own linked workspace, and only when the project shares requests. `prompt-never-in-telemetry.test.ts` holds this rule.
+
 ## The setup funnel: `onboarding_step`
 
 One kind for every step of every phase, rather than an event name per step. A name per step means that every funnel query names the steps it spans, so moving, renaming or inserting one silently breaks the query that was watching it. A `phase` + `step` pair keeps the funnel a `GROUP BY` instead of a union, and a new step arrives in the existing chart rather than beside it.

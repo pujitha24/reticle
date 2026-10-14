@@ -32,6 +32,11 @@ import {
 } from './detect/workspace-apps.js';
 import { CURSOR_RULE_PATH, RETICLE_MD_PATH } from './project/agent-rules.js';
 import { CLAUDE_SETTINGS_PATH } from './plan/stop-hook-step.js';
+import {
+  PromptHookAgent,
+  promptHookTargets,
+  type PromptHookTarget,
+} from './register/prompt-hooks.js';
 import { CRA_ENV_PATH } from './patch/cra.js';
 import { findNextMountFile } from './patch/next-patch.js';
 import { tanstackStartConnectPath } from './patch/tanstack-start.js';
@@ -442,6 +447,7 @@ export function gatherPlanInput(options: InitOptions, io: InitIo, pkg: unknown):
     cursorCommandContent: io.readFile(agentFile(CURSOR_COMMAND_PATH)),
     // Read only to MERGE into: the settings file is the user's, and other tools write in it too.
     claudeSettingsContent: io.readFile(agentFile(CLAUDE_SETTINGS_PATH)),
+    ...promptHookInput(io, options, claudeCli, agentFile),
     ...(agentRoot === undefined
       ? {}
       : {
@@ -458,5 +464,26 @@ export function gatherPlanInput(options: InitOptions, io: InitIo, pkg: unknown):
       // The SDK must match the CLI asking for it — see pinnedPackages.
       sdkVersion: RETICLE_VERSION,
     },
+  };
+}
+
+/**
+ * Which agents get the prompt-capture hook, and what their configs hold now. Rides with the agent
+ * wiring, so `--no-mcp` skips it as it skips the rule files. Claude Code's entry is merged with the
+ * other hooks in `.claude/settings.json`, so it is a flag here and not a target.
+ */
+function promptHookInput(
+  io: InitIo,
+  options: InitOptions,
+  claudeCli: boolean,
+  agentFile: (relPath: string) => string,
+): { claudePromptHook: boolean; promptHooks: PromptHookTarget[] } {
+  if (!options.mcp || false === options.promptCapture) {
+    return { claudePromptHook: false, promptHooks: [] };
+  }
+  const targets = promptHookTargets(io, agentFile('.'), io.homeDir(), claudeCli, join);
+  return {
+    claudePromptHook: targets.some((t) => PromptHookAgent.CLAUDE_CODE === t.spec.id),
+    promptHooks: targets.filter((t) => PromptHookAgent.CLAUDE_CODE !== t.spec.id),
   };
 }

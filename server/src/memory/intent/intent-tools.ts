@@ -1,20 +1,12 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
-import {
-  StatementSource,
-  classifyStatement,
-  splitStatements,
-  type PromptContext,
-} from '@reticlehq/core/artifacts';
-import { redactFeedbackText } from '@/telemetry/feedback.js';
+import { promptContextFor, sharesRequests } from './record-request.js';
 import { reticleDirPaths } from '@/memory/project/dir/reticle-dir.js';
 import { IntentStore } from './intent-store.js';
 import { IntentShardStore } from './intent-shard-store.js';
 import { IntentStatus } from './intent-shard.js';
 import { UNSORTED_SUBJECT } from './intent-subject.js';
-import { ReticleDir, ReticleTool, apiKeyFrom, mainCheckoutTwin } from '@reticlehq/core';
-import { readTextOrUndefined } from '@/memory/project/fs/fs-port.js';
+import { ReticleTool } from '@reticlehq/core';
 import { sessionIdShape } from '@/surface/tools/tool-kit.js';
 import { PredicateSchema } from '@reticlehq/engine/question/predicate/predicate.js';
 import { sessionRoot } from '@/memory/project/session-root.js';
@@ -255,47 +247,6 @@ async function withExistingFiles<T extends { surface?: unknown }>(
 const NO_SUBJECT_FIX =
   'Nothing says what these are about, so an agent looking for them cannot find them: declare each again with surface.route (the page it is about) or surface.flow.';
 
-const MAX_REQUEST = 20_000;
-const MAX_STATEMENT = 500;
-const MAX_STATEMENTS = 100;
-const PROJECT_CONFIG = '.reticle.json';
-
-/** Credentials and personal data out, length capped: the same rules feedback reports follow. */
-function redactSecrets(text: string, max: number): string {
-  return redactFeedbackText(text, max).text;
-}
-
-/**
- * Whether the request goes to the platform with the runs that verify it.
- *
- * A LINKED project shares it unless `.reticle.json` says `"shareRequests": false`: the platform
- * reads what each run was for, which is half of what a run means. An unlinked project has nowhere
- * to send it, and `"shareRequests": true` still shares from one that links later.
- */
-function sharesRequests(projectDir: string, reticleRoot: string): boolean {
-  let setting: unknown;
-  try {
-    const config: unknown = JSON.parse(readFileSync(join(projectDir, PROJECT_CONFIG), 'utf8'));
-    setting = (config as { shareRequests?: unknown } | null)?.shareRequests;
-  } catch {
-    setting = undefined;
-  }
-  if (false === setting) return false;
-  if (true === setting) return true;
-  // Linked by `reticle connect` (cloud.json), or by a key in the environment, the way CI syncs.
-  return (
-    existsSync(join(reticleRoot, ReticleDir.CLOUD_LINK_FILE)) ||
-    // A git worktree of a linked project is linked: its `.reticle/` is often git-ignored.
-    existsSync(
-      join(
-        mainCheckoutTwin(reticleRoot, readTextOrUndefined) ?? reticleRoot,
-        ReticleDir.CLOUD_LINK_FILE,
-      ),
-    ) ||
-    apiKeyFrom(process.env) !== undefined
-  );
-}
-
 /**
  * Keep the user's request, and every statement in it and in the declared intents, classified and
  * attributed, for the runs that verify it. Secrets are redacted before anything is written.
@@ -308,29 +259,16 @@ async function recordRequest(
   request: string,
   declared: readonly unknown[],
 ): Promise<void> {
-  const text = redactSecrets(request, MAX_REQUEST);
   const agentStatements = declared.flatMap((d) => {
     const statement = (d as { statement?: unknown } | null)?.statement;
     return 'string' === typeof statement ? [statement] : [];
   });
-  const context: PromptContext = {
-    request: text,
-    statements: [
-      ...splitStatements(text).map((t) => ({ text: t, source: StatementSource.USER })),
-      ...agentStatements.map((t) => ({
-        text: redactSecrets(t, MAX_STATEMENT),
-        source: StatementSource.AGENT,
-      })),
-    ]
-      .slice(0, MAX_STATEMENTS)
-      .map((s) => ({
-        ...s,
-        text: s.text.slice(0, MAX_STATEMENT),
-        kind: classifyStatement(s.text),
-      })),
-    at: deps.now(),
-    shared: sharesRequests(dirname(root), root),
-  };
+  const context = promptContextFor(
+    request,
+    agentStatements,
+    deps.now(),
+    sharesRequests(dirname(root), root),
+  );
   const path = reticleDirPaths(root).request;
   await deps.fs.mkdir(dirname(path));
   await deps.fs.writeFile(path, `${JSON.stringify(context, null, 2)}\n`);

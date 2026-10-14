@@ -65,6 +65,10 @@ export const DoctorRow = {
   COVERAGE: 'coverage',
   /** A project folder holding runs the platform never got. Only when there is one. */
   UNSYNCED: 'unsynced',
+  /** Per agent: does its prompt hook hand prompts to Reticle, or do the MCP instructions. */
+  PROMPTS: 'prompts',
+  /** The daemon's background sync for this project: on or off, why, and the last push. */
+  SYNC: 'sync',
 } as const;
 
 type DoctorRowLabel = (typeof DoctorRow)[keyof typeof DoctorRow];

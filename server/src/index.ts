@@ -3,6 +3,7 @@ import { coveragePercents } from './features/exhaust/ledger.js';
 import { agentWiring } from './portal/session/zero-install-first-call.js';
 import { pushIfMoved, watchAccountFiles } from './memory/impact/account-watch.js';
 import { SESSION_FILE } from './command/cli/cloud-kit.js';
+import { signedInTo } from './command/cli/auth/cloud-session.js';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { linkedCloudPort, sessionCloudPort } from './memory/cloud/cloud-config.js';
@@ -491,6 +492,7 @@ export async function startDaemon(options: StartOptions = {}): Promise<RunningSe
     homeDir: homedir(),
     env: process.env,
     otherRoots: knownProjectRoots,
+    signedIn: (url) => signedInTo(join(homedir(), ReticleDir.ROOT), url),
   });
   syncNudge.run = (): void => cloudSync.nudge();
   // `syncNow`, not `nudge` (a cycle soon): somebody is watching the button. Never awaited.

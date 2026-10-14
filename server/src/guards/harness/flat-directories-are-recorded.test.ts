@@ -352,7 +352,8 @@ const OVER_THE_LINE: Readonly<Record<string, number>> = {
   // Its own file because `sync-cycle.ts` is near the line cap and this is a separate conversation
   // with a separate endpoint, which the cycle only calls.
   // 13 since `harness-offer.ts` left: the free-months offer ended on the platform.
-  'server/src/memory/cloud': 13,
+  // 14: `background-sync.ts`, the daemon's gate on sending (sign-in, link, opt-outs).
+  'server/src/memory/cloud': 14,
   // 35 since the setup funnel: `onboarding-funnel.ts` (the one emit chokepoint), `onboarding-firsts.ts`
   // (the first look / act / verdict of a run, which only the daemon can witness) and
   // `install-trace.ts` (draining what the installer could not report, because it ran before there
