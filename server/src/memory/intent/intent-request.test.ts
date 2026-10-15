@@ -108,7 +108,13 @@ describe('a request belongs to the run that answered it', () => {
     const { d, fs } = deps(1_000);
     await intentTool?.handler(d, { action: 'declare', request: 'Sign in and check Diagnostics' });
     const store = new RunStore(fs, ROOT);
-    const run = { runId: 'drive-tab', createdAt: 2_000, flows: [], checks: [] } as never;
+    const run = {
+      runId: 'drive-tab',
+      createdAt: 2_000,
+      project: { name: 'p' },
+      flows: [],
+      checks: [],
+    } as never;
     const read = async () =>
       (
         JSON.parse(await fs.readFile(`${ROOT}/runs/drive-tab.json`)) as {
