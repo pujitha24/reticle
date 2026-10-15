@@ -15,13 +15,13 @@ import type { ProjectCloud } from './cloud-config.js';
 
 const LINKED: ProjectCloud = {
   config: { url: 'https://cloud.test', apiKey: 'rk_test' },
-  policy: { runs: true, memory: true, flows: true, capsules: true, screenshots: true },
+  policy: { runs: true, memory: true, flows: true, capsules: true, screenshots: true, video: true },
   verify: 'local',
   projectId: 'demo',
 };
 const UNLINKED: ProjectCloud = {
   config: null,
-  policy: { runs: true, memory: true, flows: true, capsules: true, screenshots: true },
+  policy: { runs: true, memory: true, flows: true, capsules: true, screenshots: true, video: true },
   verify: 'local',
   projectId: null,
 };

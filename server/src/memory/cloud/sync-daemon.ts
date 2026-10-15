@@ -41,7 +41,7 @@ import {
 import { createNodeFileSystem } from '@/memory/project/fs/fs-port.js';
 import { flushPendingWrites } from '@/hooks/hook-bus.js';
 import { describeSync, runSyncCycle, type SyncReport } from './sync-cycle.js';
-import { diskSink, diskSource, readCloudState } from './sync-disk.js';
+import { diskSink, diskSource, policyScreenshots, readCloudState } from './sync-disk.js';
 import { CLOUD_LINK_FILE, resolveProjectCloud, type ProjectCloud } from './cloud-config.js';
 import { watch } from 'node:fs';
 import { unmatchedRoots, unsyncedRoots, type UnsyncedRoot } from './unsynced-roots.js';
@@ -253,9 +253,7 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
         flows: () => (cloud.policy.flows ? full.flows() : []),
         capsules: () => (cloud.policy.capsules ? full.capsules() : []),
         derived: (kind) => (cloud.policy.memory ? full.derived(kind) : undefined),
-        ...(cloud.policy.screenshots && full.screenshot !== undefined
-          ? { screenshot: full.screenshot }
-          : {}),
+        ...policyScreenshots(full.screenshot, cloud.policy),
       },
       sink: diskSink(root),
       state: readCloudState(root),
