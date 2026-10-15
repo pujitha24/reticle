@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { emitSyncHook } from '@/hooks/hook-emit.js';
-import { startSyncDaemon } from './sync-daemon.js';
+import { flushWithin, startSyncDaemon } from './sync-daemon.js';
 
 vi.mock('@/hooks/hook-emit.js', () => ({ emitSyncHook: vi.fn() }));
 import type { ProjectCloud } from './cloud-config.js';
@@ -565,6 +565,29 @@ describe('the last push', () => {
  * A cycle whose only outcome was a refusal logged nothing and told the hook it was ok: the push
  * completed, so it counted as success, and the one fact worth reading was dropped.
  */
+/** A process on its way out sent its last cycle with no bound, so a dead network held the exit. */
+describe('flushWithin', () => {
+  it('returns at the budget when the cycle never finishes', async () => {
+    let finished = false;
+    const done = flushWithin({ flush: () => new Promise<void>(() => undefined) }, 2_000).then(
+      () => {
+        finished = true;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(finished).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await done;
+    expect(finished).toBe(true);
+  });
+
+  it('never throws on the way out', async () => {
+    await expect(
+      flushWithin({ flush: () => Promise.reject(new Error('offline')) }, 2_000),
+    ).resolves.toBeUndefined();
+  });
+});
+
 describe('a refusal is not silence', () => {
   let posts = 0;
   const refusing = (url: string): Promise<{ status: number; text: string }> => {

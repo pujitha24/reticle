@@ -479,6 +479,26 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
 }
 
 /**
+ * Flush, but return after `budgetMs` at the latest, and never throw.
+ *
+ * For a process on its way out. The cycle has per-call timeouts, but a stalled network still adds
+ * them up, and an exit must not wait on that. A cycle cut short loses nothing: the artifacts stay
+ * on disk, and the next daemon or `reticle sync` sends them.
+ */
+export async function flushWithin(
+  daemon: Pick<SyncDaemon, 'flush'>,
+  budgetMs: number,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, budgetMs);
+    timer.unref?.();
+  });
+  await Promise.race([daemon.flush().catch(() => undefined), deadline]);
+  clearTimeout(timer);
+}
+
+/**
  * Start cloud sync for a daemon and hand back the two hooks the daemon wires to it.
  *
  * The wiring lived in `index.ts`, which sits exactly on the thousand-line cap — so the next thing
