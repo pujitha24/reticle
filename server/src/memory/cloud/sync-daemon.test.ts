@@ -871,6 +871,76 @@ describe('a change under .reticle wakes the sync', () => {
     d.stop();
   });
 
+  /** A server the test can take offline, and the times at which each cycle began. */
+  function flaky() {
+    const state = { down: true };
+    const ok = counting().request;
+    const request = (url: string): Promise<{ status: number; text: string }> =>
+      state.down ? Promise.reject(new Error('offline')) : ok(url);
+    return { state, request };
+  }
+  const gaps = (times: readonly number[]): number[] =>
+    times.slice(1).map((t, i) => t - (times[i] ?? t));
+
+  it('retries a failed sync within a minute, with no file change', async () => {
+    const server = flaky();
+    const w = watched({ request: server.request });
+    await vi.advanceTimersByTimeAsync(6_000); // the first cycle fails
+    expect(w.cycles()).toBe(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(w.cycles()).toBe(2);
+    w.d.stop();
+  });
+
+  it('backs off on repeated failures, never past the backstop', async () => {
+    const server = flaky();
+    const times: number[] = [];
+    const d = startSyncDaemon({
+      reticleRoot: root,
+      cloud: () => {
+        times.push(Date.now());
+        return Promise.resolve(LINKED);
+      },
+      request: server.request,
+    });
+    await vi.advanceTimersByTimeAsync(90 * 60_000);
+    const between = gaps(times);
+    expect(between[0]).toBe(60_000);
+    expect(Math.max(...between)).toBe(600_000);
+    for (let i = 1; i < between.length; i += 1)
+      expect(between[i]).toBeGreaterThanOrEqual(between[i - 1] ?? 0);
+    d.stop();
+  });
+
+  it('a change still syncs at once while backing off', async () => {
+    const server = flaky();
+    const w = watched({ request: server.request });
+    await vi.advanceTimersByTimeAsync(6_000 + 60_000 + 120_000); // three failures, next in 4 min
+    const before = w.cycles();
+    w.change('runs/run-1.json');
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(w.cycles()).toBe(before + 1);
+    w.d.stop();
+  });
+
+  it('returns to the ten-minute rhythm after a success', async () => {
+    const server = flaky();
+    const times: number[] = [];
+    const d = startSyncDaemon({
+      reticleRoot: root,
+      cloud: () => {
+        times.push(Date.now());
+        // Back online from the third cycle on.
+        if (times.length >= 3) server.state.down = false;
+        return Promise.resolve(LINKED);
+      },
+      request: server.request,
+    });
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    expect(gaps(times)).toEqual([60_000, 120_000, 600_000, 600_000]);
+    d.stop();
+  });
+
   it('closes the watcher on stop and on flush', async () => {
     const a = watched();
     a.d.stop();

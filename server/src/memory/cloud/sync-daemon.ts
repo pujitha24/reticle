@@ -13,8 +13,9 @@
  * QUIET WHEN IDLE. A cycle runs because something under `.reticle` CHANGED: the whole root is
  * watched, and a change schedules one cycle after a short debounce, so a drive that writes forty
  * files costs one cycle. Nothing changed, nothing sent. A slow timer (ten minutes) stays as the
- * backstop — for a filesystem that cannot be watched, a failed upload to retry, and the team's
- * decisions to pull down — and a cycle that moved something still earns the fast active rate.
+ * backstop — for a filesystem that cannot be watched and the team's decisions to pull down — and a
+ * cycle that moved something still earns the fast active rate. A FAILED cycle retries after a
+ * minute, doubling per failure up to the backstop, and a success returns it to the idle rhythm.
  * The sync's own bookkeeping writes are ignored, or every cycle would schedule the next.
  *
  * NEVER IN THE WAY. Nothing here is awaited by a tool call. A sync that can slow down or fail a
@@ -54,7 +55,7 @@ import type { FileSystemPort } from '@/memory/project/fs/fs-port.js';
 /**
  * The backstop: how often the daemon cycles when nothing under `.reticle` has changed. Long, because
  * a change wakes the sync on its own; this exists for what a watch cannot see (an unwatchable
- * filesystem, a failed upload to retry, decisions made on the dashboard).
+ * filesystem, decisions made on the dashboard). A failed cycle retries sooner: FAILURE_RETRY_MS.
  */
 const DAEMON_SYNC_INTERVAL_MS = 600_000;
 
@@ -94,6 +95,12 @@ const isOwnWrite = (path: string): boolean => {
  * loop, and verification working with the network down is a promise this product makes.
  */
 const DAEMON_SYNC_ACTIVE_INTERVAL_MS = 5_000;
+
+/**
+ * The first retry after a failed cycle, doubling with each failure after it up to the backstop. A
+ * failed upload is owed work, so it does not wait ten minutes for the idle timer.
+ */
+const FAILURE_RETRY_MS = 60_000;
 
 /** Given to the first cycle so a freshly-started daemon does not race the session that woke it. */
 const FIRST_CYCLE_DELAY_MS = 5_000;
@@ -423,7 +430,8 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
         reportedError = failure;
         log('reticle_cloud_sync_failed', { error: failure });
       }
-      if (report.error === undefined) {
+      if (report.error !== undefined) failedCycle();
+      else {
         if (failure === undefined) reportedError = undefined;
         // Only when something actually moved. A per-minute "nothing to send" is noise that trains
         // people to stop reading the log.
@@ -436,7 +444,11 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
          * follows the work without needing to be told about sessions, and an idle laptop settles at
          * the same cost it had before this existed.
          */
-        nextDelay = moved ? activeIntervalMs : intervalMs;
+        if (failure !== undefined && !moved) failedCycle();
+        else {
+          failures = 0;
+          nextDelay = moved ? activeIntervalMs : intervalMs;
+        }
       }
       return report;
     } catch (error: unknown) {
@@ -446,6 +458,7 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
         reportedError = message;
         log('reticle_cloud_sync_failed', { error: message });
       }
+      failedCycle();
       return undefined;
     } finally {
       await refreshUnsynced().catch(() => undefined);
@@ -456,6 +469,12 @@ export function startSyncDaemon(deps: SyncDaemonDeps): SyncDaemon {
 
   /** The delay for the NEXT cycle: fast while the last one moved something, slow once it stops. */
   let nextDelay = intervalMs;
+  /** Consecutive failed cycles: the retry waits a minute, then doubles, never past the backstop. */
+  let failures = 0;
+  function failedCycle(): void {
+    nextDelay = Math.min(FAILURE_RETRY_MS * 2 ** failures, intervalMs);
+    failures += 1;
+  }
 
   /** When the armed timer fires; Infinity when none is armed. */
   let dueAt = Number.POSITIVE_INFINITY;
