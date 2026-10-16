@@ -1,0 +1,3 @@
+### Changed
+
+- **`@reticlehq/server` — the daemon syncs when `.reticle` changes, not once a minute.** It watches the whole `.reticle` folder and runs one sync cycle about 2 seconds after a change, so a drive that writes many files costs one cycle. A change during a running cycle gets exactly one follow-up. The sync's own bookkeeping (`cloud-state.json`, `issues.json`) and the per-event session journal never wake it. The idle timer is now 10 minutes and stays as the backstop: it retries a failed upload, pulls decisions made on the dashboard, and syncs the other linked folders on the machine. Where the folder cannot be watched (an unsupported filesystem, too many files), the daemon logs `reticle_cloud_watch_unavailable` once and syncs on the timer.
