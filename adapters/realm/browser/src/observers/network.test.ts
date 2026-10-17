@@ -948,6 +948,18 @@ describe('installNetwork (request-body shape fingerprint)', () => {
     expect(savePlayer).not.toBe(advanceSetup);
   });
 
+  it('separates payloads with the same keys and the same length', async () => {
+    const a = await shapeOfPost(JSON.stringify({ cmd: 'accessSets' }));
+    const b = await shapeOfPost(JSON.stringify({ cmd: 'currencies' }));
+    expect(a).not.toBe(b);
+  });
+
+  it('separates same-length form values', async () => {
+    const a = await shapeOfPost(new URLSearchParams({ name: 'alpha' }));
+    const b = await shapeOfPost(new URLSearchParams({ name: 'bravo' }));
+    expect(a).not.toBe(b);
+  });
+
   it('gives two identical payloads the same fingerprint', async () => {
     const once = await shapeOfPost(JSON.stringify({ action: 'save-player', name: 'ada' }));
     const twice = await shapeOfPost(JSON.stringify({ action: 'save-player', name: 'ada' }));
@@ -1082,7 +1094,7 @@ describe('installNetwork (request-body shape fingerprint)', () => {
       expect(await shapeOfPost(upload('a.png', 'x'.repeat(10)))).toBe(small);
     });
 
-    it('carries no name or value, and a text value only as part of a length', async () => {
+    it('carries no name or value, and separates same-length values', async () => {
       const form = new FormData();
       form.append('password', 'hunter2-secret');
       const shape = String(await shapeOfPost(form));
@@ -1090,7 +1102,7 @@ describe('installNetwork (request-body shape fingerprint)', () => {
       expect(shape).not.toContain('hunter2');
       const sameLength = new FormData();
       sameLength.append('password', 'abcdefg-zzzzzz');
-      expect(await shapeOfPost(sameLength)).toBe(shape);
+      expect(await shapeOfPost(sameLength)).not.toBe(shape);
     });
 
     it('cannot be imitated by a field name that spells a separator', async () => {
@@ -1117,10 +1129,11 @@ describe('installNetwork (request-body shape fingerprint)', () => {
     });
   });
 
-  it('fingerprints a form-urlencoded body by its keys, not its values', async () => {
+  it('fingerprints a form-urlencoded body by its keys and values', async () => {
     const shape = await shapeOfPost(new URLSearchParams({ user: 'alice', pass: 'hunter2' }));
     const same = await shapeOfPost(new URLSearchParams({ user: 'bobby', pass: 'trust01' }));
-    expect(shape).toBe(same); // identical keys, identical lengths
+    expect(shape).not.toBe(same); // same keys and lengths, different values
+    expect(await shapeOfPost(new URLSearchParams({ user: 'alice', pass: 'hunter2' }))).toBe(shape);
     const other = await shapeOfPost(new URLSearchParams({ user: 'alice', token: 'hunter2' }));
     expect(shape).not.toBe(other);
   });

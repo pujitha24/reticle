@@ -84,58 +84,62 @@ function frameFields(data: unknown, captureBodies: boolean): Record<string, unkn
 }
 
 /**
- * Tokens for a body's SHAPE. Internal to the fingerprint: only the HASH of a shape string ever
- * leaves the page, so these names are an encoding rather than wire vocabulary.
- */
-const ShapeToken = { NULL: '0', STRING: 's', NUMBER: 'n', BOOLEAN: 'b', OTHER: '?' } as const;
-
-/**
- * A parsed body's structure, with every VALUE replaced by its type.
+ * A parsed body in canonical form: object keys sorted, every value kept.
  *
- * Object keys are sorted, so `{a,b}` and `{b,a}` — the same payload serialised twice — fingerprint
- * the same. Nothing a value contains is read: a string contributes the letter `s` whether it is an
- * email address, a session token or empty.
+ * Object keys are sorted, so `{a,b}` and `{b,a}` — the same payload serialised twice — are equal.
+ * Values stay in, because two calls to one endpoint often differ only by a short value
+ * (`{cmd:'accessSets'}` and `{cmd:'currencies'}`). This string never leaves the function that
+ * hashes it; see `fingerprintBody`.
  */
-function shapeOf(value: unknown): string {
-  if (null === value) return ShapeToken.NULL;
-  if (Array.isArray(value)) return `[${value.map(shapeOf).join(',')}]`;
-  if ('object' === typeof value) {
+function canonicalOf(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalOf).join(',')}]`;
+  if (null !== value && 'object' === typeof value) {
     const fields = value as Record<string, unknown>;
     return `{${Object.keys(fields)
       .sort()
-      .map((key) => `${key}:${shapeOf(fields[key])}`)
+      .map((key) => `${JSON.stringify(key)}:${canonicalOf(fields[key])}`)
       .join(',')}}`;
   }
-  if ('string' === typeof value) return ShapeToken.STRING;
-  if ('number' === typeof value) return ShapeToken.NUMBER;
-  if ('boolean' === typeof value) return ShapeToken.BOOLEAN;
-  return ShapeToken.OTHER;
+  return JSON.stringify(value) ?? 'undefined';
+}
+
+/** A per-page random salt. It stays in this module and never goes on the wire. */
+const SALT_BYTES = 16;
+let pageSalt: string | undefined;
+
+function saltOfPage(): string {
+  if (pageSalt !== undefined) return pageSalt;
+  const bytes = new Uint8Array(SALT_BYTES);
+  if ('function' === typeof globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  pageSalt = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return pageSalt;
 }
 
 /**
- * The discriminator itself: the shape, plus the body's length, hashed.
+ * The discriminator itself: the canonical body, salted and hashed.
  *
- * The length is what separates two payloads of identical structure — `{"command":"mesh.plan"}` from
- * `{"command":"study.stage.set"}` — and it is the ONLY thing here derived from a value. It is a
- * single number over the whole body, already implied by the `content-length` the transport sends,
- * and it is not a projection of any one field: a password contributes to it only as part of a sum
- * it cannot be separated from. Unhashed it would still leak nothing recoverable; hashing it with
- * the shape is what makes the field opaque to a reader of the journal as well.
+ * Equal bodies give equal fingerprints within one page. Different bodies give different ones, even
+ * when they have the same keys and the same length. The salt is random for each page and never
+ * leaves it, so a reader of the journal cannot test a guessed value against the hash.
  *
- * `fnv1a` because this runs in the page and is a discriminator, not a security boundary — see its
- * own note. A collision costs a false `duplicate-request`, which is the finding this whole field
- * exists to make rarer, not a leak.
+ * `fnv1a` because this runs in the page and is a discriminator. A collision costs a false
+ * `duplicate-request`, not a leak.
  */
-function fingerprintBody(shape: string, length: number): string {
-  return fnv1a(`${shape}#${String(length)}`);
+function fingerprintBody(canonical: string): string {
+  return fnv1a(`${saltOfPage()}#${canonical}`);
 }
 
-/** A JSON body's shape, or an opaque marker when the text is not JSON at all. */
+/** A JSON body's canonical form, or the text itself when it is not JSON. */
 function jsonShape(text: string): string {
   try {
-    return shapeOf(JSON.parse(text) as unknown);
+    return canonicalOf(JSON.parse(text) as unknown);
   } catch {
-    return ShapeToken.OTHER;
+    // Not JSON: the text itself is the identity.
+    return text;
   }
 }
 
@@ -188,13 +192,13 @@ function textOfBytes(body: unknown): string | undefined {
  */
 function formShape(form: FormData): string | undefined {
   const fields: string[] = [];
-  let length = 0;
   form.forEach((value, name) => {
-    if ('string' === typeof value) length += value.length;
     // A JSON tuple per field, so no name can imitate a separator: `a=&b` is one field, not two.
-    fields.push(JSON.stringify([name, 'string' === typeof value ? 0 : [value.type, value.size]]));
+    fields.push(
+      JSON.stringify([name, 'string' === typeof value ? value : [value.type, value.size]]),
+    );
   });
-  return 0 === fields.length ? undefined : fingerprintBody(fields.sort().join(), length);
+  return 0 === fields.length ? undefined : fingerprintBody(fields.sort().join());
 }
 
 /**
@@ -220,7 +224,7 @@ function projectRequestBody(body: unknown, captureBodies: boolean): Record<strin
     (body as { constructor?: { name?: string } }).constructor?.name ?? typeof body;
   if ('string' === typeof body || bytesText !== undefined) {
     text = bytesText ?? (body as string);
-    if (text.length > 0) shape = fingerprintBody(jsonShape(text), text.length);
+    if (text.length > 0) shape = fingerprintBody(jsonShape(text));
   } else if (typeof FormData !== 'undefined' && body instanceof FormData) {
     // Read synchronously and never kept: names and kinds only, so it separates distinct uploads to
     // one endpoint without carrying any value (#1347).
@@ -233,8 +237,7 @@ function projectRequestBody(body: unknown, captureBodies: boolean): Record<strin
     text = body.toString();
     contentType = 'application/x-www-form-urlencoded';
     if (text.length > 0) {
-      const fields = Object.fromEntries(new URLSearchParams(text));
-      shape = fingerprintBody(shapeOf(fields), text.length);
+      shape = fingerprintBody(canonicalOf([...new URLSearchParams(text)]));
     }
   } else if (body !== undefined && body !== null) {
     // No fingerprint at all: the field's absence is what says the identity is unknown.
